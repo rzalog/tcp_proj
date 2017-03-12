@@ -24,33 +24,33 @@ void header_flags_init(header_flags *flags, int ack, int syn, int fin) {
   flags->flag_set = flag_set;
 }
 
-int test_mask(void *test, int mask) {
-  int test_int = *((int *) test);
-  return test_int & mask;
+int test_mask(char test, char mask) {
+  return test & mask;
 }
 
-int ack_flagged(header_flags* flag) {
-  return test_mask(&(flag->flag_set), ACK_FLAG_MASK);
+int ack_flagged(header_flags flag) {
+  return test_mask(flag.flag_set, ACK_FLAG_MASK);
 }
 
-int syn_flagged(header_flags* flag) {
-  return test_mask(&(flag->flag_set), SYN_FLAG_MASK);
+int syn_flagged(header_flags flag) {
+  return test_mask(flag.flag_set, SYN_FLAG_MASK);
 }
 
-int fin_flagged(header_flags* flag) {
-  return test_mask(&(flag->flag_set), FIN_FLAG_MASK);
+int fin_flagged(header_flags flag) {
+  return test_mask(flag.flag_set, FIN_FLAG_MASK);
 }
 
-void tcp_header_init(tcp_header *header, short src_port, short dest_port, int seq_num, int ack_num, header_flags flags) {
+void tcp_header_init(tcp_header *header, short src_port, short dest_port, int seq_num, int ack_num, int ack_flag, int syn_flag, int fin_flag) {
   // Passed in values
   header->src_port = src_port;
   header->dest_port = dest_port;
   header->seq_num = seq_num;
   header->ack_num = ack_num;
-  header->flags = flags;
+
+  header_flags_init(&(header->flags), ack_flag, syn_flag, fin_flag);
 
   // Values that are going to be constant or computed
-  header->header_len = 20;
+  header->header_len = TCP_HEADER_LEN;
   header->recv_wndw = RECV_WNDW_DEFAULT;
   header->check_sum = 0;
   header->urgent_data_pointer = 0;
@@ -63,7 +63,7 @@ void tcp_packet_init(tcp_packet *packet, tcp_header *header, void *data, int dat
 }
 
 int send_tcp_packet(tcp_packet* send_packet, int sock_fd, const struct sockaddr_in *dest_addr) {
-  if (sendto(sock_fd, (void *) send_packet, send_packet->data_len+TCP_HEADER_LEN, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr)) < send_packet->data_len+TCP_HEADER_LEN) {
+  if (sendto(sock_fd, (void *) send_packet, send_packet->data_len+TCP_HEADER_LEN, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr_in)) < send_packet->data_len+TCP_HEADER_LEN) {
     return -1;
   }
   

@@ -34,10 +34,10 @@ typedef struct {
 } tcp_packet; // 1024 bytes
 
 void header_flags_init(header_flags *flags, int ack, int syn, int fin);
-int ack_flagged(header_flags* flag);
-int syn_flagged(header_flags* flag);
-int fin_flagged(header_flags* flag);
-void tcp_header_init(tcp_header *header, short src_port, short dest_port, int seq_num, int ack_num, header_flags flags);
+int ack_flagged(header_flags flag);
+int syn_flagged(header_flags flag);
+int fin_flagged(header_flags flag);
+void tcp_header_init(tcp_header *header, short src_port, short dest_port, int seq_num, int ack_num, int ack_flag, int syn_flag, int fin_flag);
 void tcp_packet_int(tcp_packet *packet, tcp_header *header, void *data, int data_len);
 
 int send_tcp_packet(tcp_packet* send_packet, int sock_fd, const struct sockaddr_in *dest_addr);
