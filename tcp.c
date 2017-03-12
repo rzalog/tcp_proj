@@ -1,11 +1,12 @@
 #include <unistd.h>
 #include <stdio.h>
-#include <sys.types.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <arpa/inet.h>
 #include "tcp.h"
 
 void header_flags_init(header_flags *flags, int ack, int syn, int fin) {
@@ -56,36 +57,28 @@ void tcp_header_init(tcp_header *header, short src_port, short dest_port, int se
 }
 
 void tcp_packet_init(tcp_packet *packet, tcp_header *header, void *data, int data_len) {
-  packet->header = header;
-  packet->header_len = TCP_HEADER_LEN;
-  packet->data = data;
+  packet->header = *header;
+  memcpy(packet->data, data, data_len);
   packet->data_len = data_len;
 }
 
 int send_tcp_packet(tcp_packet* send_packet, int sock_fd, const struct sockaddr_in *dest_addr) {
-  if (sendto(sock_fd, (void *) send_packet->header, send_packet->header_len, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr)) < send_packet->header_len) {
-    return -1;
-  }
-
-  if (sendto(sock_fd, (void *) send_packet->data, send_packet->data_len, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr)) < send_packet->data_len) {
+  if (sendto(sock_fd, (void *) send_packet, send_packet->data_len+TCP_HEADER_LEN, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr)) < send_packet->data_len+TCP_HEADER_LEN) {
     return -1;
   }
   
   return 0;
 }
 
-int recv_tcp_packet(tcp_packet* recv_packet, int sock_fd) {
-  int slen = sizeof(struct sockaddr);
+int recv_tcp_packet(tcp_packet* recv_packet, int sock_fd, const struct sockaddr_in *src_addr) {
+  unsigned int slen = sizeof(struct sockaddr);
   
-  if (recvfrom(sock_fd, (void *) send_packet->header, TCP_HEADER_LEN, 0, (struct sockaddr *) dest_addr, &slen) < TCP_HEADER_LEN) {
-    return -1;
-  }
+  int n = recvfrom(sock_fd, (void *) recv_packet, TCP_HEADER_LEN+TCP_MAX_DATA_LEN, 0, (struct sockaddr *) src_addr, &slen);
 
-  int n = sendto(sock_fd, (void *) send_packet->data, TCP_MAX_DATA_LEN, 0, (struct sockaddr *) dest_addr, &slen);
   if (n < 0) {
     return -1;
   }
-  send_packet->data_len = n;
+  recv_packet->data_len = n - TCP_HEADER_LEN;
   
-  return 0;
+  return n;
 }

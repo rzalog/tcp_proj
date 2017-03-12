@@ -1,4 +1,4 @@
-ALL = client server tcp
+ALL = client server
 HEADERS = tcp.h
 
 all: $(ALL)
@@ -8,6 +8,3 @@ client: client.c tcp.c $(HEADERS)
 
 server: server.c tcp.c $(HEADERS)
 	gcc -o server server.c tcp.c
-
-tcp: tcp.c $(HEADERS)
-	gcc -o tcp tcp.c
