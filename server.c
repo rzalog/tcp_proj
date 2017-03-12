@@ -9,19 +9,15 @@
 #define SERVER "127.0.0.1"
  
 #define BUFLEN 512  //Max length of buffer
-<<<<<<< Updated upstream
 #define PORT 8888   //The port on which to listen for incoming data
 
-=======
 //#define PORT 8888   //The port on which to listen for incoming data
  
->>>>>>> Stashed changes
 void die(char *s)
 {
     perror(s);
     exit(1);
 }
-<<<<<<< Updated upstream
 
 f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
 {
@@ -54,11 +50,8 @@ f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrle
   return sockfd;
 }
 
-int main(void)
-=======
  
 int main(int argc, char *argv[])
->>>>>>> Stashed changes
 {
     if (argc < 2)
     {
@@ -115,13 +108,10 @@ int main(int argc, char *argv[])
     tcp_header header;
     tcp_packet packet;
 
-<<<<<<< Updated upstream
     tcp_header_init(&packet.header, PORT, PORT, 0, 6, 1, 0, 0);
     tcp_packet_init(&packet, (void *) buf, strlen(buf));
-=======
     //tcp_header_init(&header, PORT, PORT, 0, 6, 1, 0, 0);
     //tcp_packet_init(&packet, &header, (void *) buf, strlen(buf));
->>>>>>> Stashed changes
 
     //keep listening for data
     while(1)
