@@ -25,11 +25,9 @@ typedef struct {
 } tcp_header;
 
 typedef struct {
-  tcp_header* header;
-  int header_len;
-  void *data;
-  int data_len;
-} tcp_packet;
+  tcp_header header;
+  char[1004] data;
+} tcp_packet; // 1024 bytes
 
 void header_flags_init(header_flags *flags, int ack, int syn, int fin);
 int ack_flagged(header_flags* flag);
@@ -38,5 +36,5 @@ int fin_flagged(header_flags* flag);
 void tcp_header_init(tcp_header *header, short src_port, short dest_port, int seq_num, int ack_num, header_flags flags, short recv_wndw);
 void tcp_packet_int(tcp_packet *packet, tcp_header *header, void *data);
 
-int send_tcp_packet(tcp_packet* send_packet, int sock_fd);
+int send_tcp_packet(tcp_packet* send_packet, int sock_fd, int byte_to_write);
 int recv_tcp_packet(tcp_packet* recv_packet, int sock_fd);
