@@ -12,18 +12,20 @@
 #define SERVER "127.0.0.1"
 #define BUFLEN 512  //Max length of buffer
 #define PORT 8888   //The port on which to send data
- 
+
+#define INIT_SEQ_NUM 546
+
 void die(char *s)
 {
     perror(s);
     exit(1);
 }
 
+f_socket f_connect(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
+{
 
+}
 
-
-
- 
 int main(void)
 {
     struct sockaddr_in si_other;
@@ -59,8 +61,8 @@ int main(void)
         //clear the buffer by filling null, it might have previously received data
         //memset(buf,'\0', BUFLEN);
         
-        tcp_header_init(&header, PORT, PORT, 2, 4, 1, 0, 0);
-        tcp_packet_init(&packet, &header, (void *) buf, strlen(buf));
+        tcp_header_init(&packet.header, PORT, PORT, 2, 4, 1, 0, 0);
+        tcp_packet_init(&packet, (void *) buf, strlen(buf));
 
         int n = send_tcp_packet(&packet, s, &si_other);
 

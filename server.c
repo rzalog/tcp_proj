@@ -13,13 +13,44 @@
  
 #define BUFLEN 512  //Max length of buffer
 #define PORT 8888   //The port on which to listen for incoming data
- 
+
 void die(char *s)
 {
     perror(s);
     exit(1);
 }
- 
+
+f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
+{
+  // Configure our socket (because we know it is a server now)
+  sockfd->cur_seq_num = SERVER_DEFAULT_SEQ_NUM;
+
+  // Receive packet from the client
+  tcp_packet client_packet;
+  recv_tcp_packet(&client_packet, sockfd->fd, sockfd->dest_addr);
+
+  if (!syn_flagged(client_packet.header.flags)) {
+    return NULL;
+  }
+
+  sockfd->cur_ack_num = client_packet.header.seq_num + 1;
+
+  // Send response
+  tcp_packet send_packet;
+  tcp_header_init(&send_packet.header, sockfd->src_port, client_packet.header.src_port, sockfd->cur_seq_num, sockfd->cur_ack_num, 1, 1, 0);
+  tcp_packet_init(&send_packet, NULL, 0);
+
+  send_tcp_packet(&send_packet, sockfd->fd, sockfd->dest_addr);
+
+  // Get back the ACK (assume no data being sent initially)
+  recv_tcp_packet(&client_packet, sockfd->fd, sockfd->dest_addr);
+  if (!syn_flagged(client_packet.header.flags)) {
+    return NULL;
+  }
+
+  return sockfd;
+}
+
 int main(void)
 {
     struct sockaddr_in si_me, si_other;
@@ -61,8 +92,8 @@ int main(void)
     tcp_header header;
     tcp_packet packet;
 
-    tcp_header_init(&header, PORT, PORT, 0, 6, 1, 0, 0);
-    tcp_packet_init(&packet, &header, (void *) buf, strlen(buf));
+    tcp_header_init(&packet.header, PORT, PORT, 0, 6, 1, 0, 0);
+    tcp_packet_init(&packet, (void *) buf, strlen(buf));
 
     //keep listening for data
     while(1)
@@ -86,8 +117,8 @@ int main(void)
 
         recv_tcp_packet(&packet, s, &si_other);
 
-        tcp_header_init(&header, PORT, PORT, 0, 6, 1, 0, 0);
-        tcp_packet_init(&packet, &header, (void *) buf, strlen(buf));
+        tcp_header_init(&packet.header, PORT, PORT, 0, 6, 1, 0, 0);
+        tcp_packet_init(&packet, (void *) buf, strlen(buf));
 
         int n = send_tcp_packet(&packet, s, &si_other);
 

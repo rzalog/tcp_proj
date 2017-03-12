@@ -56,9 +56,11 @@ void tcp_header_init(tcp_header *header, short src_port, short dest_port, int se
   header->urgent_data_pointer = 0;
 }
 
-void tcp_packet_init(tcp_packet *packet, tcp_header *header, void *data, int data_len) {
-  packet->header = *header;
-  memcpy(packet->data, data, data_len);
+void tcp_packet_init(tcp_packet *packet, void *data, int data_len) {
+  if (data_len != 0) {
+    memcpy(packet->data, data, data_len);
+  }
+  
   packet->data_len = data_len;
 }
 
@@ -81,4 +83,26 @@ int recv_tcp_packet(tcp_packet* recv_packet, int sock_fd, const struct sockaddr_
   recv_packet->data_len = n - TCP_HEADER_LEN;
   
   return n;
+}
+
+f_socket* f_socket_init()
+{
+  f_socket* sockfd = (f_socket *)malloc(sizeof(f_socket));
+  if ((sockfd->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+    return NULL;
+  }
+  
+  return sockfd;
+}
+
+int f_bind(f_socket *sockfd, struct sockaddr_in *addr)
+{
+  sockfd->src_port = addr->sin_port;
+  sockfd->dest_port = 0;
+
+  if (bind(sockfd->fd, (struct sockaddr *) addr, sizeof(struct sockaddr)) < 0) {
+    return -1;
+  }
+
+  return 0;
 }
