@@ -1,6 +1,3 @@
-/*
-    Simple udp server
-*/
 #include <stdio.h> //printf
 #include <string.h> //memset
 #include <stdlib.h> //exit(0);
@@ -12,13 +9,19 @@
 #define SERVER "127.0.0.1"
  
 #define BUFLEN 512  //Max length of buffer
+<<<<<<< Updated upstream
 #define PORT 8888   //The port on which to listen for incoming data
 
+=======
+//#define PORT 8888   //The port on which to listen for incoming data
+ 
+>>>>>>> Stashed changes
 void die(char *s)
 {
     perror(s);
     exit(1);
 }
+<<<<<<< Updated upstream
 
 f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
 {
@@ -52,7 +55,27 @@ f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrle
 }
 
 int main(void)
+=======
+ 
+int main(int argc, char *argv[])
+>>>>>>> Stashed changes
 {
+    if (argc < 2)
+    {
+        fprintf(stderr, "Error, no port provided\n");
+        exit(1);
+    }
+
+    int portno = atoi(argv[1]);
+
+
+
+
+
+
+
+
+
     struct sockaddr_in si_me, si_other;
      
     int s, i, slen = sizeof(si_other) , recv_len;
@@ -68,7 +91,7 @@ int main(void)
     memset((char *) &si_me, 0, sizeof(si_me));
      
     si_me.sin_family = AF_INET;
-    si_me.sin_port = htons(PORT);
+    si_me.sin_port = htons(portno);
     si_me.sin_addr.s_addr = htonl(INADDR_ANY);
 /*
 
@@ -92,8 +115,13 @@ int main(void)
     tcp_header header;
     tcp_packet packet;
 
+<<<<<<< Updated upstream
     tcp_header_init(&packet.header, PORT, PORT, 0, 6, 1, 0, 0);
     tcp_packet_init(&packet, (void *) buf, strlen(buf));
+=======
+    //tcp_header_init(&header, PORT, PORT, 0, 6, 1, 0, 0);
+    //tcp_packet_init(&packet, &header, (void *) buf, strlen(buf));
+>>>>>>> Stashed changes
 
     //keep listening for data
     while(1)
@@ -127,16 +155,6 @@ int main(void)
         {
             die("sendto()");
         }
-
-        /*
-        //now reply the client with the same data
-        if (sendto(s, buf, recv_len, 0, (struct sockaddr*) &si_other, slen) == -1)
-        {
-            die("sendto()");
-        }
-
-
-*/
 
     }
  

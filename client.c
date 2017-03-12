@@ -9,12 +9,17 @@
 #include <unistd.h>
 #include "tcp.h"
  
-#define SERVER "127.0.0.1"
+//#define SERVER "127.0.0.1"
 #define BUFLEN 512  //Max length of buffer
+<<<<<<< Updated upstream
 #define PORT 8888   //The port on which to send data
 
 #define INIT_SEQ_NUM 546
 
+=======
+//#define PORT 8888   //The port on which to send data
+ 
+>>>>>>> Stashed changes
 void die(char *s)
 {
     perror(s);
@@ -26,8 +31,31 @@ f_socket f_connect(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrle
 
 }
 
+<<<<<<< Updated upstream
 int main(void)
+=======
+
+
+ 
+int main(int argc, char *argv[])
+>>>>>>> Stashed changes
 {
+    if (argc != 4)
+    {
+        fprintf(stderr,"ERROR, ./client < server hostname >< server portnumber >< filename >\n");
+        exit(1);
+    }
+
+    char 
+    int server_port_no = atoi(argv[2]);
+
+
+
+
+
+
+
+
     struct sockaddr_in si_other;
     int s, i, slen=sizeof(si_other);
     
