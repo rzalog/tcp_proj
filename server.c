@@ -26,24 +26,18 @@ f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrle
 
   // Receive packet from the client
   tcp_packet client_packet;
-  recv_tcp_packet(&client_packet, sockfd->fd, sockfd->dest_addr);
-
-  if (!syn_flagged(client_packet.header.flags)) {
+  if (f_read_packet(sockfd, &client_packet) < 0 || !client_packet.syn) {
     return NULL;
   }
 
-  sockfd->cur_ack_num = client_packet.header.seq_num + 1;
-
   // Send response
   tcp_packet send_packet;
-  tcp_header_init(&send_packet.header, sockfd->src_port, client_packet.header.src_port, sockfd->cur_seq_num, sockfd->cur_ack_num, 1, 1, 0);
-  tcp_packet_init(&send_packet, NULL, 0);
-
-  send_tcp_packet(&send_packet, sockfd->fd, sockfd->dest_addr);
+  if (f_write_packet(sockfd, &send_packet, NULL, 0, 1, 1, 0) < 0) {
+    return NULL;
+  }
 
   // Get back the ACK (assume no data being sent initially)
-  recv_tcp_packet(&client_packet, sockfd->fd, sockfd->dest_addr);
-  if (!syn_flagged(client_packet.header.flags)) {
+  if (f_read_packet(sockfd, &client_packet) < 0 || !client_packet.syn) {
     return NULL;
   }
 

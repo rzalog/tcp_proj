@@ -30,7 +30,24 @@ f_socket f_connect(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrle
 
   // Send initial packet to server
   tcp_packet send_packet;
-  tcp_header_init(&send_packet.header, sockfd->src_port, addr
+  tcp_header_init(&send_packet.header, sockfd->src_port, addr->sin_port, sockfd->cur_seq_num, 0, 0, 1, 0);
+  tcp_packet_init(&send_packet, NULL, 0);
+
+  send_tcp_packet(&send_packet, sockfd->fd, addr);
+
+  sockfd->
+
+  // Receive response
+  tcp_packet server_packet;
+  recv_tcp_packet(&client_packet, sockfd->fd, sockfd->destaddr);
+
+  if (!syn_flagged(server_packet.header.flags) || !ack_flagged(server_packet.header.flags)) {
+    return NULL;
+  }
+
+  sockfd->cur_ack_num = server_packet.header.seq_num + 1;
+  
+  // Send back final ACK
 }
 
  

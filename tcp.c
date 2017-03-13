@@ -9,51 +9,12 @@
 #include <arpa/inet.h>
 #include "tcp.h"
 
-void header_flags_init(header_flags *flags, int ack, int syn, int fin) {
-  char flag_set = 0;
-  if (ack) {
-    flag_set |= ACK_FLAG_MASK;
-  }
-  if (syn) {
-    flag_set |= SYN_FLAG_MASK;
-  }
-  if (fin) {
-    flag_set |= FIN_FLAG_MASK;
-  }
-
-  flags->flag_set = flag_set;
-}
-
-int test_mask(char test, char mask) {
-  return test & mask;
-}
-
-int ack_flagged(header_flags flag) {
-  return test_mask(flag.flag_set, ACK_FLAG_MASK);
-}
-
-int syn_flagged(header_flags flag) {
-  return test_mask(flag.flag_set, SYN_FLAG_MASK);
-}
-
-int fin_flagged(header_flags flag) {
-  return test_mask(flag.flag_set, FIN_FLAG_MASK);
-}
-
-void tcp_header_init(tcp_header *header, short src_port, short dest_port, int seq_num, int ack_num, int ack_flag, int syn_flag, int fin_flag) {
-  // Passed in values
-  header->src_port = src_port;
-  header->dest_port = dest_port;
+void tcp_header_init(tcp_header *header, int seq_num, int ack_num, int ack_flag, int syn_flag, int fin_flag) {
   header->seq_num = seq_num;
   header->ack_num = ack_num;
-
-  header_flags_init(&(header->flags), ack_flag, syn_flag, fin_flag);
-
-  // Values that are going to be constant or computed
-  header->header_len = TCP_HEADER_LEN;
-  header->recv_wndw = RECV_WNDW_DEFAULT;
-  header->check_sum = 0;
-  header->urgent_data_pointer = 0;
+  header->ack = ack_flag;
+  header->syn = syn_flag;
+  header->fin = fin_flag;
 }
 
 void tcp_packet_init(tcp_packet *packet, void *data, int data_len) {
@@ -64,18 +25,18 @@ void tcp_packet_init(tcp_packet *packet, void *data, int data_len) {
   packet->data_len = data_len;
 }
 
-int send_tcp_packet(tcp_packet* send_packet, int sock_fd, const struct sockaddr_in *dest_addr) {
-  if (sendto(sock_fd, (void *) send_packet, send_packet->data_len+TCP_HEADER_LEN, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr_in)) < send_packet->data_len+TCP_HEADER_LEN) {
+int send_tcp_packet(tcp_packet* send_packet, int sockfd, const struct sockaddr_in *dest_addr) {
+  if (sendto(sockfd, (void *) send_packet, send_packet->data_len+TCP_HEADER_LEN, 0, (struct sockaddr *) dest_addr, sizeof(struct sockaddr_in)) < send_packet->data_len+TCP_HEADER_LEN) {
     return -1;
   }
-  
+
   return 0;
 }
 
-int recv_tcp_packet(tcp_packet* recv_packet, int sock_fd, const struct sockaddr_in *src_addr) {
+int recv_tcp_packet(tcp_packet* recv_packet, int sockfd, const struct sockaddr_in *src_addr) {
   unsigned int slen = sizeof(struct sockaddr);
   
-  int n = recvfrom(sock_fd, (void *) recv_packet, TCP_HEADER_LEN+TCP_MAX_DATA_LEN, 0, (struct sockaddr *) src_addr, &slen);
+  int n = recvfrom(sockfd, (void *) recv_packet, TCP_HEADER_LEN+TCP_MAX_DATA_LEN, 0, (struct sockaddr *) src_addr, &slen);
 
   if (n < 0) {
     return -1;
@@ -105,4 +66,29 @@ int f_bind(f_socket *sockfd, struct sockaddr_in *addr)
   }
 
   return 0;
+}
+
+int f_write_packet(f_socket *sockfd, tcp_packet *packet, void *data, int data_len, int ack_flag, int syn_flag, int fin_flag)
+{
+  // Actually send the packet
+  tcp_header_init(&(packet->header), sockfd->cur_seq_num, sockfd->cur_ack_num, ack_flag, syn_flag, fin_flag);
+  tcp_packet_init(&packet, data, data_len);
+
+  if (send_tcp_packet(&packet, sockfd->fd, sockfd->dest_addr) < 0) {
+    return -1;
+  }
+
+  // Update all the state
+  sockfd->cur_seq_num += data_len;
+}
+
+int f_read_packet(f_socket *sockfd, tcp_packet *packet)
+{
+  // Actually read the packet
+  if (recv_tcp_packet(&packet, sockfd->fd, sockfd->dest_addr) < 0) {
+    return -1;
+  }
+  
+  // Update state
+  sockfd->ack_num += recv_packet->data_len;
 }
