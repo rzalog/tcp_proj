@@ -25,7 +25,12 @@ void die(char *s)
 
 f_socket f_connect(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
 {
+  // Configure socket for client
+  sockfd->cur_seq_num = CLIENT_DEFAULT_SEQ_NUM;
 
+  // Send initial packet to server
+  tcp_packet send_packet;
+  tcp_header_init(&send_packet.header, sockfd->src_port, addr
 }
 
  
