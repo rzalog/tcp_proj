@@ -7,4 +7,4 @@ client: client.c tcp.c $(HEADERS)
 	gcc -o client client.c tcp.c
 
 server: server.c tcp.c $(HEADERS)
-	gcc -o server server.c tcp.c
+	gcc -o server server.c tcp.c -pthread

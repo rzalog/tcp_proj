@@ -46,6 +46,7 @@ int recv_tcp_packet(tcp_packet* recv_packet, int sockfd, const struct sockaddr_i
   return n;
 }
 
+/*
 f_socket* f_socket_init()
 {
   f_socket* sockfd = (f_socket *)malloc(sizeof(f_socket));
@@ -55,6 +56,7 @@ f_socket* f_socket_init()
   
   return sockfd;
 }
+
 
 int f_bind(f_socket *sockfd, struct sockaddr_in *addr)
 {
@@ -67,6 +69,7 @@ int f_bind(f_socket *sockfd, struct sockaddr_in *addr)
 
   return 0;
 }
+
 
 int f_write_packet(f_socket *sockfd, tcp_packet *packet, void *data, int data_len, int ack_flag, int syn_flag, int fin_flag)
 {
@@ -92,3 +95,4 @@ int f_read_packet(f_socket *sockfd, tcp_packet *packet)
   // Update state
   sockfd->ack_num += recv_packet->data_len;
 }
+*/

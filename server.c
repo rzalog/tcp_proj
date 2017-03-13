@@ -4,14 +4,10 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <time.h>
 #include "tcp.h"
-
-#define SERVER "127.0.0.1"
  
-#define BUFLEN 512  //Max length of buffer
-#define PORT 8888   //The port on which to listen for incoming data
-
-//#define PORT 8888   //The port on which to listen for incoming data
  
 void die(char *s)
 {
@@ -19,31 +15,40 @@ void die(char *s)
     exit(1);
 }
 
-f_socket* f_accept(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
+
+void print_SEND(int seq_num, int retransmission, int syn, int fin)
 {
-  // Configure our socket (because we know it is a server now)
-  sockfd->cur_seq_num = SERVER_DEFAULT_SEQ_NUM;
-
-  // Receive packet from the client
-  tcp_packet client_packet;
-  if (f_read_packet(sockfd, &client_packet) < 0 || !client_packet.syn) {
-    return NULL;
-  }
-
-  // Send response
-  tcp_packet send_packet;
-  if (f_write_packet(sockfd, &send_packet, NULL, 0, 1, 1, 0) < 0) {
-    return NULL;
-  }
-
-  // Get back the ACK (assume no data being sent initially)
-  if (f_read_packet(sockfd, &client_packet) < 0 || !client_packet.syn) {
-    return NULL;
-  }
-
-  return sockfd;
+    fprintf(stdout, "Sending packet %d 5120", seq_num);
+    if (retransmission)
+        fprintf(stdout, " Retransmission");
+    if (syn)
+        fprintf(stdout, " SYN");
+    if (fin)
+        fprintf(stdout, " FIN");
+    fprintf(stdout, "\n");
 }
 
+void print_RECV(int ack_num)
+{
+    fprintf(stdout, "Receiving packet %d\n", ack_num);
+}
+
+
+
+
+void *timeout_check(void *arg)
+{
+  while (1)
+  {
+
+
+
+
+
+  }
+
+
+}
  
 int main(int argc, char *argv[])
 {
@@ -56,20 +61,11 @@ int main(int argc, char *argv[])
     int portno = atoi(argv[1]);
 
 
-
-
-
-
-
-
-
     struct sockaddr_in si_me, si_other;
-     
-    int s, i, slen = sizeof(si_other) , recv_len;
-    char buf[] = "this is some data";
+    int sockfd, i, slen = sizeof(si_other), recv_len;
      
     //create a UDP socket
-    if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    if ((sockfd=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
     {
         die("socket");
     }
@@ -80,68 +76,127 @@ int main(int argc, char *argv[])
     si_me.sin_family = AF_INET;
     si_me.sin_port = htons(portno);
     si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-/*
 
-    memset((char *) &si_other, 0, sizeof(si_other));
-    si_other.sin_family = AF_INET;
-    si_other.sin_port = htons(PORT);
-     
-    if (inet_aton(SERVER , &si_other.sin_addr) == 0)
-    {
-        fprintf(stderr, "inet_aton() failed\n");
-        exit(1);
-    }
-    */
      
     //bind socket to port
-    if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
+    if( bind(sockfd, (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
     {
         die("bind");
     }
+
+///////////////////////////////////////////////////////////// HANDSHAKE
+
+    int cur_seq_num = SERVER_DEFAULT_SEQ_NUM;
+    int cur_ack_num = CLIENT_DEFAULT_SEQ_NUM;
+
      
-    tcp_header header;
-    tcp_packet packet;
+    // Receive packet from the client
+    tcp_packet client_packet;
 
-    tcp_header_init(&packet.header, PORT, PORT, 0, 6, 1, 0, 0);
-    tcp_packet_init(&packet, (void *) buf, strlen(buf));
-    //tcp_header_init(&header, PORT, PORT, 0, 6, 1, 0, 0);
-    //tcp_packet_init(&packet, &header, (void *) buf, strlen(buf));
-
-    //keep listening for data
-    while(1)
-    {
-        /*
-        printf("Waiting for data...");
-        fflush(stdout);
-	memset(buf,'\0', BUFLEN);
-         
-        //try to receive some data, this is a blocking call
-        if ((recv_len = recvfrom(s, buf, BUFLEN, 0, (struct sockaddr *) &si_other, &slen)) == -1)
-	//if ((recv_len = read(s, buf, BUFLEN)) == -1)
-        {
-            die("recvfrom()");
-        }
-         
-        //print details of the client/peer and the data received
-        printf("Received packet from %s:%d\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
-        printf("Data: %s\n" , buf);
-         */
-
-        recv_tcp_packet(&packet, s, &si_other);
-
-        tcp_header_init(&packet.header, PORT, PORT, 0, 6, 1, 0, 0);
-        tcp_packet_init(&packet, (void *) buf, strlen(buf));
-
-        int n = send_tcp_packet(&packet, s, &si_other);
-
-
-        if (n < 0)
-        {
-            die("sendto()");
-        }
-
+    if (recv_tcp_packet(&client_packet, sockfd, &si_other) < 0 || !client_packet.header.syn) {
+      die("Couldn't receive SYN");
     }
+
+    cur_ack_num = client_packet.header.seq_num + client_packet.data_len + 1;
+
+    // Send response
+    tcp_packet send_packet;
+    tcp_header_init(&send_packet.header, cur_seq_num, cur_ack_num, 1, 1, 0);
+    tcp_packet_init(&send_packet, NULL, 0);
+
+    if (send_tcp_packet(&send_packet, sockfd, &si_other) < 0) {
+      die("Couldn't send SYN ACK");
+    }
+    print_SEND(cur_seq_num, 0, 1, 0);
+
+    // receive ACK to complete handshake
+    if (recv_tcp_packet(&client_packet, sockfd, &si_other) < 0) {
+      die("Couldn't receive ACK to complete handshake");
+    }
+    print_RECV(client_packet.header.ack_num);
+
+    cur_ack_num = client_packet.header.seq_num + client_packet.data_len + 1;
+
+    // get filename
+    char *fname = malloc(client_packet.data_len + 1);
+    memset(fname, '\0', client_packet.data_len + 1);
+    memcpy(fname, client_packet.data, client_packet.data_len);
+
+//////////////////////////////////////////
+
+    int fd = open(fname, O_RDONLY);
+
+    if (fd < 0)
+    {
+        die("Couldn't Open File");
+    }
+
+
+    tcp_packet window[WINDOW_SIZE]; // 5120 / 1024
+
+
+    int base = 0;
+    int end = 4;
+    int next = base;
+
+    int packets_sent = 0;
+    int acks_received = 0;
+
+
+    int more_data = 1;    
+
+    while (more_data || (base != end))
+    {
+
+      while (next != (end + 1) % WINDOW_SIZE)
+      {
+        char buf[TCP_MAX_DATA_LEN]
+        int bytes_read = read(fd, buf, TCP_MAX_DATA_LEN);
+
+        tcp_header_init(&window[next].header, cur_seq_num, cur_ack_num, 1, 0, 0);
+        tcp_header_init(&window[next], (void *) buf, byte_read);
+
+        if (bytes_read < TCP_MAX_DATA_LEN) // read the last packet
+          more_data = 0;
+
+        if (send_tcp_packet(&window[next], sockfd, &si_other) < 0) {
+          die("Sending data.");
+        }
+        print_SEND(cur_seq_num, 0, 0, 0);
+
+        cur_seq_num += bytes_read;
+        //set time at next index in time array
+
+        next = (next + 1) % WINDOW_SIZE;
+      }
+
+      // Receive ACK
+      tcp_packet recv_packet;
+      recv_tcp_packet(&recv_packet, sockfd, &si_other);
+
+      print_RECV(recv_packet.header.ack_num);
+
+      cur_ack_num += recv_packet.header.data_len;
+
+
+      int ack = recv_packet.header.ack_num;
+
+      if (window[base].header.seq_num + window[base].data_len == ack)
+      {
+        base += 1; // adjust up to last unacked packet
+      }
+      // adjust base
+      if (more_data) {
+        // adjust end
+      }
+    }
+
+
+    //pthread cancel
+    //pthread join
+
+
  
-    close(s);
+    close(sockfd);
     return 0;
 }

@@ -1,6 +1,3 @@
-/*
-    Simple udp client
-*/
 #include <stdio.h> //printf
 #include <string.h> //memset
 #include <stdlib.h> //exit(0);
@@ -9,20 +6,13 @@
 #include <unistd.h>
 #include "tcp.h"
  
-//#define SERVER "127.0.0.1"
-#define BUFLEN 512  //Max length of buffer
-#define PORT 8888   //The port on which to send data
-
-#define INIT_SEQ_NUM 546
-
-//#define PORT 8888   //The port on which to send data
  
 void die(char *s)
 {
     perror(s);
     exit(1);
 }
-
+/*
 f_socket f_connect(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrlen)
 {
   // Configure socket for client
@@ -48,7 +38,30 @@ f_socket f_connect(f_socket *sockfd, struct sockaddr_in *addr, socklen_t *addrle
   sockfd->cur_ack_num = server_packet.header.seq_num + 1;
   
   // Send back final ACK
+}*/
+
+
+void print_SEND(int ack_num, int retransmission, int syn, int fin)
+{
+  if (syn)
+    fprintf(stdout, "Sending packet SYN");
+  else
+  {
+    fprintf(stdout, "Sending packet %d", ack_num);
+    if (retransmission)
+        fprintf(stdout, " Retransmission");
+    if (fin)
+        fprintf(stdout, " FIN");
+  }
+  fprintf(stdout, "\n");
 }
+
+void print_RECV(int seq_num)
+{
+    fprintf(stdout, "Receiving packet %d\n", seq_num);
+}
+
+
 
  
 int main(int argc, char *argv[])
@@ -59,41 +72,68 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    char 
+    char* server_host_name = argv[1];
     int server_port_no = atoi(argv[2]);
+    char* file_name = argv[3];
 
-
-
-
-
-
-
-
+    // create UDP socket
     struct sockaddr_in si_other;
-    int s, i, slen=sizeof(si_other);
-    
-
-    char buf[BUFLEN];
-    char message[BUFLEN];
+    int sockfd, i, slen=sizeof(si_other);
  
-    if ( (s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    if ( (sockfd=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
     {
         die("socket");
     }
  
     memset((char *) &si_other, 0, sizeof(si_other));
     si_other.sin_family = AF_INET;
-    si_other.sin_port = htons(PORT);
+    si_other.sin_port = htons(server_port_no);
      
-    if (inet_aton(SERVER , &si_other.sin_addr) == 0)
+    if (inet_aton(server_host_name , &si_other.sin_addr) == 0)
     {
         fprintf(stderr, "inet_aton() failed\n");
         exit(1);
     }
  
-    tcp_header header;
-    tcp_packet packet;
 
+
+    /////////////////////////////////// HANDSHAKE
+
+    int cur_ack_num;
+    int cur_seq_num;
+
+    // Send initial packet to server
+    tcp_packet send_packet;
+    tcp_header_init(&send_packet.header, CLIENT_DEFAULT_SEQ_NUM, 0, 0, 1, 0);
+    tcp_packet_init(&send_packet, NULL, 0);
+
+    if (send_tcp_packet(&send_packet, sockfd, &si_other) < 0)
+    {
+      die("Couldn't send SYN\n");
+    }
+    print_SEND(0, 0, 1, 0);
+
+
+    tcp_packet recv_packet;
+
+    if (recv_tcp_packet(&recv_packet, sockfd, &si_other) < 0 || !recv_packet.header.syn)
+    {
+      die("Couldn't receive SYN\n");
+    }
+
+    cur_ack_num = recv_packet.header.seq_num + recv_packet.data_len + 1;
+
+
+    tcp_header_init(&send_packet.header, CLIENT_DEFAULT_SEQ_NUM, cur_ack_num, 1, 0, 0);
+    tcp_packet_init(&send_packet, file_name, strlen(file_name));
+
+    if (send_tcp_packet(&send_packet, sockfd, &si_other) < 0)
+    {
+      die("Couldn't send filename\n");
+    }
+    print_SEND(cur_ack_num, 0, 0, 0);
+
+/*
     while(1)
     {
          
@@ -143,10 +183,10 @@ int main(int argc, char *argv[])
             die("sendto()");
         }
 
-*/
+
 
     }
- 
-    close(s);
+ */
+    close(sockfd);
     return 0;
 }
