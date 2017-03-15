@@ -6,8 +6,8 @@
 #include <netinet/ip.h>
 
 // Constants
-#define TCP_HEADER_LEN 20
-#define TCP_MAX_DATA_LEN 1004
+#define TCP_HEADER_LEN sizeof(tcp_header)
+#define TCP_MAX_DATA_LEN 1024-TCP_HEADER_LEN
 #define RECV_WNDW_DEFAULT 5120
 #define WINDOW_SIZE 5
 
