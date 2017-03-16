@@ -10,7 +10,9 @@
 #include <pthread.h>
 #include <time.h>
 #include "tcp.h"
- 
+
+#define BILLION 1000000000
+#define TIMEOUT_IN_NS 500000000
  
 void die(char *s)
 {
@@ -29,6 +31,8 @@ typedef struct {
 	struct timespec time_stamp;
 	int has_been_acked;
 	pthread_t timeout_thread;
+	int sockfd;
+	const struct sockaddr_in *dest_addr;
 } packet_timeout;
 
 void print_SEND(int seq_num, int retransmission, int syn, int fin)
@@ -52,18 +56,25 @@ void *timeout_check(void *p_timeout_)
 {
 	packet_timeout *p_timeout = (packet_timeout *) p_timeout_;
 
-	// Handle waiting
 	while (!p_timeout->has_been_acked) {
-		// Check timestamp
+		struct time_spec cur_time;
+		clock_gettime(CLOCK_MONOTONIC, &cur_time);
 
-		// If timeout time has passed, then re-send
+		uint64_t diff = BILLION * (cur_time.tv_sec - time_stamp.tv_sec);
+		diff += cur_time.tv_nsec - time_stamp.tv_nsec;
 
-		// Wait for signal from main thread, that will receive
-		//	the ACK, to stop sending
+		if (diff > TIMEOUT_IN_NS) {
+			int n 1;
+			while (n != 0) {
+				n = send_tcp_packet(p_timeout->packet, p_timeout->sockfd, p_timeout->dest_addr);
+			}
+
+			// Reset timestamp
+			clock_gettime(CLOCK_MONOTONIC, &time_stamp);
+		}
 	}
 
 	free(p_timeout);
-	p_timeout = NULL;
 
 	return NULL;
 }
@@ -74,6 +85,8 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
 	p_timeout->has_been_acked = 0;
 	p_timeout->packet = send_packet;
+	p_timeout->sockfd = sockfd;
+	p_timeout->dest_addr = dest_addr;
 	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
 	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
 	if (n == 0) {
