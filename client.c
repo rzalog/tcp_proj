@@ -98,7 +98,7 @@ void *timeout_check(void *p_timeout_)
 int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int sockfd, const struct sockaddr_in *dest_addr)
 {
 	// Just a simple wrapper function
-	p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
+	//p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
 	p_timeout->has_been_acked = 0;
 	p_timeout->packet = send_packet;
 	p_timeout->sockfd = sockfd;
@@ -116,15 +116,15 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	return n;
 }
 
-int handshake(socket_info *sock, char *fname)
+int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 {
 	// Send initial packet to server: SYN
 	tcp_packet send_packet;
 	tcp_header_init(&send_packet.header, 0, 0, 0, 1, 0);
 	tcp_packet_init(&send_packet, NULL, 0);
 
-	packet_timeout p_timeout;
-	if (send_and_timeout(&p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
+	//packet_timeout p_timeout;
+	if (send_and_timeout(p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
 	{
 		die("Coudln't send SYN");
 	}
@@ -144,7 +144,7 @@ int handshake(socket_info *sock, char *fname)
 	tcp_header_init(&send_packet.header, 0, sock->cur_ack_num, 1, 0, 0);
 	tcp_packet_init(&send_packet, fname, strlen(fname));
 
-	if (send_and_timeout(&p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
+	if (send_and_timeout(p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
 	{
 		die("Couldn't send filename");
 	}
@@ -154,7 +154,7 @@ int handshake(socket_info *sock, char *fname)
 	return 0;	
 }
 
-int recv_file(socket_info *sock, tcp_packet *fin_packet)
+int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeout)
 {
 	// do some stuff
 	int fd = open(OUTPUT_FILE, O_WRONLY);
@@ -164,27 +164,42 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet)
 	int base = 0;
 	int end = 4;
 
-	while (1) {
+    int base_ack_num = sock->cur_ack_num;
+
+    // need to record the ack for the filename
+
+	while (1)
+    {
 		tcp_packet recv_packet;
 		recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
+        print_RECV(recv_packet.header.seq_num);
 
 		// Check for connection close
-		if (recv_packet.header.fin) {
+		if (recv_packet.header.fin)
+        {
 			tcp_header_init(&fin_packet->header, 0, recv_packet.header.seq_num, 1, 0, 1);
 			tcp_packet_init(fin_packet, NULL, 0);
 			break;
 		}
-
-		// ACK
-		tcp_packet ack_packet;
-		tcp_header_init(&ack_packet.header, 0, recv_packet.header.seq_num, 1, 0, 0);
-		tcp_packet_init(&ack_packet, NULL, 0);
-		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
-
-		// Process data (adjust window, write to file if needed)
-        
+        else
+        {
+            // Process data (adjust window, write to file if needed)
+            
 
 
+
+            // need to determine if ACK to be sent is a retransmission
+
+    		// create and send ACK
+    		tcp_packet ack_packet;
+    		tcp_header_init(&ack_packet.header, 0, recv_packet.header.seq_num, 1, 0, 0);
+    		tcp_packet_init(&ack_packet, NULL, 0);
+    		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
+
+            // print send
+    		
+
+        }
         
 	}
 
@@ -194,6 +209,12 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet)
 int close_connection(socket_info *sock, tcp_packet *fin_packet)
 {
 	// FIN-ACK procedure
+
+
+
+
+
+
 
 	close(sock->sockfd);
 	return 0;
@@ -236,12 +257,14 @@ int main(int argc, char *argv[])
     sock.sockfd = sockfd;
     sock.si_other = &si_other;
 
-    if (handshake(&sock, file_name) < 0) {
+    packet_timeout p_timeout; 
+
+    if (handshake(&sock, file_name, &p_timeout) < 0) {
     	die("Couldn't complete handshake");
     }
 
     tcp_packet fin_packet;
-    if (recv_file(&sock, &fin_packet) < 0) {
+    if (recv_file(&sock, &fin_packet, &p_timeout) < 0) {
     	die("Couldn't receive file");
     }
 
