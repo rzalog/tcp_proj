@@ -9,7 +9,10 @@
 #include <unistd.h>
 #include <time.h>
 #include "tcp.h"
- 
+
+#define BILLION 1000000000
+#define TIMEOUT_IN_NS 500000000
+
 #define OUTPUT_FILE "received.data"
 
  typedef struct {
@@ -17,6 +20,16 @@
  	int sockfd;
  	struct sockaddr_in *si_other;
  } socket_info;
+
+
+typedef struct {
+	tcp_packet *packet;
+	struct timespec time_stamp;
+	int has_been_acked;
+	pthread_t timeout_thread;
+	int sockfd;
+	const struct sockaddr_in *dest_addr;
+} packet_timeout;
 
 
 void die(char *s)
@@ -43,6 +56,60 @@ void print_SEND(int ack_num, int retransmission, int syn, int fin)
 void print_RECV(int seq_num)
 {
     fprintf(stdout, "Receiving packet %d\n", seq_num);
+}
+
+void *timeout_check(void *p_timeout_)
+{
+	packet_timeout *p_timeout = (packet_timeout*) p_timeout_;
+
+	while (!p_timeout->has_been_acked)
+	{
+		// check timestamp
+		struct timespec cur_time;
+		clock_gettime(CLOCK_MONOTONIC, &cur_time);
+
+		// if timeout time has passed
+		uint64_t diff = BILLION * (cur_time.tv_sec - p_timeout->time_stamp.tv_sec);
+		diff += cur_time.tv_nsec - p_timeout->time_stamp.tv_nsec;
+
+		if (diff > TIMEOUT_IN_NS)
+		{
+			int n = 1;
+			while (n != 0)
+			{
+				n = send_tcp_packet(p_timeout->packet, p_timeout->sockfd, p_timeout->dest_addr);
+			}
+
+			// reset timestamp
+			clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
+		}
+	}
+
+	free(p_timeout);
+	p_timeout_ = NULL;
+
+	return NULL;
+}
+
+int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int sockfd, const struct sockaddr_in *dest_addr)
+{
+	// Just a simple wrapper function
+	p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
+	p_timeout->has_been_acked = 0;
+	p_timeout->packet = send_packet;
+	p_timeout->sockfd = sockfd;
+	p_timeout->dest_addr = dest_addr;
+
+	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
+	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
+	if (n == 0) {
+		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
+	} else {
+		free(p_timeout);
+		p_timeout = NULL;
+	}
+
+	return n;
 }
 
 int handshake(socket_info *sock, char *fname)
