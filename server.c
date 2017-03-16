@@ -57,20 +57,20 @@ void *timeout_check(void *p_timeout_)
 	packet_timeout *p_timeout = (packet_timeout *) p_timeout_;
 
 	while (!p_timeout->has_been_acked) {
-		struct time_spec cur_time;
+		struct timespec cur_time;
 		clock_gettime(CLOCK_MONOTONIC, &cur_time);
 
-		uint64_t diff = BILLION * (cur_time.tv_sec - time_stamp.tv_sec);
-		diff += cur_time.tv_nsec - time_stamp.tv_nsec;
+		uint64_t diff = BILLION * (cur_time.tv_sec - p_timeout->time_stamp.tv_sec);
+		diff += cur_time.tv_nsec - p_timeout->time_stamp.tv_nsec;
 
 		if (diff > TIMEOUT_IN_NS) {
-			int n 1;
+			int n = 1;
 			while (n != 0) {
 				n = send_tcp_packet(p_timeout->packet, p_timeout->sockfd, p_timeout->dest_addr);
 			}
 
 			// Reset timestamp
-			clock_gettime(CLOCK_MONOTONIC, &time_stamp);
+			clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
 		}
 	}
 
@@ -181,24 +181,25 @@ int send_file(socket_info *sock, char *fname)
 			next = (next + 1) % WINDOW_SIZE;
 		}
 
-	// Receive ACK
-	tcp_packet recv_packet;
-	recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
+		// Receive ACK
+		tcp_packet recv_packet;
+		recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
 
-	int ack = recv_packet.header.ack_num;
-	print_RECV(ack);
+		int ack = recv_packet.header.ack_num;
+		print_RECV(ack);
 
-	// Free the packet_timeout
+		// Free the packet_timeout
 
-	// Adjust window size
-	if (window[base].header.seq_num + window[base].data_len == ack)
-	{
-		base += 1; // adjust up to last unacked packet
-	}
-	// adjust base
-	if (more_data) {
-	// adjust end
-	}
+		// Adjust window size
+		if (window[base].header.seq_num + window[base].data_len == ack)
+		{
+			base += 1; // adjust up to last unacked packet
+		}
+		// adjust base
+		
+		if (more_data) {
+			// adjust end
+		}
 	}
 	return 0;
 }
