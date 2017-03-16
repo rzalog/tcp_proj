@@ -13,6 +13,7 @@
 
 #define BILLION 1000000000
 #define TIMEOUT_IN_NS 500000000
+#define TIME_WAIT_IN_NS TIMEOUT_IN_NS * 2
  
 void die(char *s)
 {
@@ -34,6 +35,12 @@ typedef struct {
 	int sockfd;
 	const struct sockaddr_in *dest_addr;
 } packet_timeout;
+
+typedef struct {
+	socket_info *sock;
+	tcp_packet *ack_packet;
+	int reset_wait;
+} fin_ack_thread_data;
 
 void print_SEND(int seq_num, int retransmission, int syn, int fin)
 {
@@ -69,31 +76,39 @@ void *timeout_check(void *p_timeout_)
 				n = send_tcp_packet(p_timeout->packet, p_timeout->sockfd, p_timeout->dest_addr);
 			}
 
+			print_SEND(p_timeout->packet->header.seq_num, 1, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
 			// Reset timestamp
 			clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
 		}
 	}
 
-	free(p_timeout);
-
 	return NULL;
+}
+
+void *wait_for_fin_ack(void *fin_ack_info_)
+{
+	fin_ack_thread_data *fin_ack_info = (fin_ack_thread_data *) fin_ack_info_;
+	socket_info *sock = fin_ack_info->sock;
+
+	tcp_packet recv_packet;
+	recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
+
+	fin_ack_info->reset_wait = 1;
 }
 
 int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int sockfd, const struct sockaddr_in *dest_addr)
 {
 	// Just a simple wrapper function
-	p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
 	p_timeout->has_been_acked = 0;
 	p_timeout->packet = send_packet;
 	p_timeout->sockfd = sockfd;
 	p_timeout->dest_addr = dest_addr;
 	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
 	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
+	print_SEND(p_timeout->packet->header.seq_num, 0, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
+
 	if (n == 0) {
 		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
-	} else {
-		free(p_timeout);
-		p_timeout = NULL;
 	}
 
 	return n;
@@ -113,17 +128,16 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
     tcp_header_init(&send_packet.header, sock->cur_seq_num, 0, 1, 1, 0);
     tcp_packet_init(&send_packet, NULL, 0);
 
-    packet_timeout *p_timeout;
-    if (send_and_timeout(p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0) {
+    packet_timeout p_timeout;
+    if (send_and_timeout(&p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0) {
       die("Couldn't send SYN ACK");
     }
-    print_SEND(sock->cur_seq_num, 0, 1, 0);
 
     // receive ACK to complete handshake
     if (recv_tcp_packet(first_packet, sock->sockfd, sock->si_other) < 0) {
       die("Couldn't receive ACK to complete handshake");
     }
-    p_timeout->has_been_acked = 1;
+    p_timeout.has_been_acked = 1;
 
     // For some reason you have to do this
     sock->cur_seq_num++;
@@ -141,14 +155,11 @@ int send_file(socket_info *sock, char *fname)
 	}
 
 	tcp_packet window[WINDOW_SIZE]; // 5120 / 1024
-	packet_timeout *p_timeouts[WINDOW_SIZE];
+	packet_timeout p_timeouts[WINDOW_SIZE];
 
 	int base = 0;
 	int end = 4;
 	int next = base;
-
-	int packets_sent = 0;
-	int acks_received = 0;
 
 	int more_data = 1;
 
@@ -168,39 +179,49 @@ int send_file(socket_info *sock, char *fname)
 				more_data = 0;
 			}
 
-			if (send_tcp_packet(&window[next], sock->sockfd, sock->si_other) < 0)
+			if (send_and_timeout(&p_timeouts[next], &window[next], sock->sockfd, sock->si_other) < 0)
 			{
 			  die("Sending data");
 			}
-			print_SEND(sock->cur_seq_num, 0, 0, 0);
 
-			sock->cur_seq_num += bytes_read;
-			//set time at next index in time array
-			// OR even better, set an actual timeout... timer
+			sock->cur_seq_num = (sock->cur_seq_num + bytes_read) % MAX_SEQ_NUM;
 
 			next = (next + 1) % WINDOW_SIZE;
 		}
 
-		// Receive ACK
 		tcp_packet recv_packet;
 		recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
 
 		int ack = recv_packet.header.ack_num;
 		print_RECV(ack);
 
-		// Free the packet_timeout
-
-		// Adjust window size
-		if (window[base].header.seq_num + window[base].data_len == ack)
-		{
-			base += 1; // adjust up to last unacked packet
+		int which_packet = -1;
+		for (int i = 0; i < WINDOW_SIZE; i++) {
+			if (ack == window[i].header.seq_num) {
+				which_packet = i;
+				break;
+			}
 		}
-		// adjust base
-		
-		if (more_data) {
-			// adjust end
+
+		// If we found a matching packet in our window
+		if (!(which_packet < 0)) {
+			p_timeouts[which_packet].has_been_acked = 1;
+
+			int base_has_advanced = 0;
+			int old_end = end;
+			while (p_timeouts[base].has_been_acked) {
+				base_has_advanced = 1;
+				base = (base + 1) % WINDOW_SIZE;
+				if (more_data) {
+					end = (end + 1) % WINDOW_SIZE;
+				}
+			}
+			if (base_has_advanced) {
+				next = (old_end + 1) % WINDOW_SIZE;
+			}
 		}
 	}
+
 	return 0;
 }
 
@@ -211,8 +232,50 @@ int close_connection(socket_info *sock)
 	tcp_header_init(&fin_packet.header, sock->cur_seq_num, 0, 0, 0, 1);
 	tcp_packet_init(&fin_packet, NULL, 0);
 
-	// This part is confusing, their description doesn't match
-	//	the book's description of closing the connection
+	packet_timeout p_timeout;
+	send_and_timeout(&p_timeout, &fin_packet, sock->sockfd, sock->si_other);
+
+	tcp_packet fin_ack_packet;
+	tcp_recv_packet(&fin_ack_packet, sock->sockfd, sock->si_other);
+
+	if (fin_ack_packet.header.fin && fin_ack_packet.header.ack) {
+		p_timeout.has_been_acked = 1;
+	} else {
+		die("Client closed connection incorrectly");
+	}
+
+	// Generate the last ACK
+	tcp_packet ack_packet;
+	tcp_header_init(&ack_packet.header, 0, 0, 1, 0, 0);
+	tcp_packet_init(&ack_packet, NULL, 0);
+	send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
+
+	fin_ack_thread_data fin_ack_info;
+	fin_ack_info.sock = sock;
+	fin_ack_info.ack_packet = &ack_packet;
+	fin_ack_info.reset_wait = 0;
+
+	pthread_t fin_ack_thread;
+	pthread_create(&fin_ack_thread, NULL, wait_for_fin_ack, &fin_ack_info);
+
+	struct timespec start, end;
+	uint64_t diff = 0;
+
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	while (diff < TIME_WAIT_IN_NS) {
+		clock_gettime(CLOCK_MONOTONIC, &end);
+
+		diff = BILLION * (end.tv_sec - start.tv_sec);
+		diff += end.tv_nsec - start.tv_nsec;
+
+		if (fin_ack_info.reset_wait) {
+			send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
+			clock_gettime(CLOCK_MONOTONIC, &start);
+			fin_ack_info.reset_wait = 0;
+		}
+	}
+
+	pthread_cancel(fin_ack_thread);
 
 	close(sock->sockfd);
 	return 0;
@@ -244,7 +307,6 @@ int main(int argc, char *argv[])
     si_me.sin_family = AF_INET;
     si_me.sin_port = htons(portno);
     si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-
      
     //bind socket to port
     if( bind(sockfd, (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)

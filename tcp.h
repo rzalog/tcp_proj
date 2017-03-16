@@ -13,6 +13,7 @@
 
 #define SERVER_DEFAULT_SEQ_NUM 5095
 #define CLIENT_DEFAULT_SEQ_NUM 10
+#define MAX_SEQ_NUM 30720
 
 typedef struct {
   int seq_num;
