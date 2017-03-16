@@ -61,6 +61,7 @@ void print_RECV(int seq_num)
     fprintf(stdout, "Receiving packet %d\n", seq_num);
 }
 
+
 void *timeout_check(void *p_timeout_)
 {
 	packet_timeout *p_timeout = (packet_timeout*) p_timeout_;
@@ -148,7 +149,7 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 	{
 		die("Couldn't send filename");
 	}
-	print_SEND(sock->cur_ack_num, 0, 0, 0);
+	print_SEND(recv_packet.header.seq_num, 0, 0, 0);
 
 
 	return 0;	
@@ -159,20 +160,50 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 	// do some stuff
 	int fd = open(OUTPUT_FILE, O_WRONLY);
 
-	tcp_packet window[WINDOW_SIZE];
+	tcp_packet* window[WINDOW_SIZE];
+	int window_slot_filled[WINDOW_SIZE];
+	memset(window_slot_filled, 0, WINDOW_SIZE * sizeof(int));
 
 	int base = 0;
 	int end = 4;
 
-    int base_ack_num = sock->cur_ack_num;
+    long base_seq_num = sock->cur_ack_num;
 
     int first_packet_received = 1;
 
+    int wrap_arounds = 0;
+
+    int wrap_around_flag = 1;
+    int is_retransmission = 0;
+
 	while (1)
-    {
+    {	
+    	// help to determine the 'pseudo-sequence number'
+    	if (base_seq_num > MAX_SEQ_NUM - RECV_WNDOW_DEFAULT && wrap_around_flag)
+    	{
+    		wrap_arounds += 1;
+    		wrap_around_flag = 0;
+    	}
+    	else (base_seq_num < MAX_SEQ_NUM - RECV_WNDOW_DEFAULT)
+    	{
+    		wrap_around_flag = 1;
+    	}
+
 		tcp_packet recv_packet;
 		recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
         print_RECV(recv_packet.header.seq_num);
+        is_retransmission = 0;
+
+        long pseudo_seq_num;
+        // create pseudo-sequence number
+        if (recv_packet.header.seq_num < MAX_SEQ_NUM - RECV_WNDOW_DEFAULT)
+        {
+        	pseudo_seq_num = recv_packet.header.seq_num + MAX_SEQ_NUM * wrap_arounds;
+        }
+        else
+        {
+        	pseudo_seq_num = recv_packet.header.seq_num + MAX_SEQ_NUM * (wrap_arounds-1);
+        }
 
         // the filename packet is ACKed on receiving first packet
         if (first_packet_received)
@@ -192,8 +223,41 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
         {
             // Process data (adjust window, write to file if needed)
             
+            if (pseudo_seq_num >= base_seq_num)
+            {
+            	// get packet's index in window buffer relative to base
+            	int index = (((pseudo_seq_num - base_seq_num)/TCP_MAX_DATA_LEN) + base) % WINDOW_SIZE;
+				
 
+				// have not received packet yet
+            	if (window_slot_filled[index] == 0)
+            	{
+					memcpy(window[index], &recv_packet, sizeof(tcp_packet));
+					window_slot_filled[index] = 1;
+				}
+				else
+				{
+					is_retransmission = 1;
+				}
 
+            }
+            else
+            {
+            	// ignore packet bc before window
+            	// this is a retransmission
+            	is_retransmission = 1;
+            }
+
+            // write to file
+            while (window_slot_filled[base] == 1)
+            {
+            	int bytes_written = write(fd, window[base].data, window[base].data_len);
+
+            	base_seq_num = base_seq_num + window[base].data_len;
+
+            	window_slot_filled[base] = 0;
+            	base = (base + 1)%5;
+            }
 
             // need to determine if ACK to be sent is a retransmission
 
@@ -204,7 +268,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
     		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
 
             // print send
-    		
+    		print_SEND(recv_packet.header.seq_num, is_retransmission, 0, 0);
 
         }
         
