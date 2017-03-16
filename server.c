@@ -241,7 +241,7 @@ int close_connection(socket_info *sock)
 	if (fin_ack_packet.header.fin && fin_ack_packet.header.ack) {
 		p_timeout.has_been_acked = 1;
 	} else {
-		die("Client closed connection incorrectly");
+		printf("NOTE: Client closed connection incorrectly - did not receive FIN-ACK\n");
 	}
 
 	// Generate the last ACK
@@ -255,13 +255,15 @@ int close_connection(socket_info *sock)
 	fin_ack_info.ack_packet = &ack_packet;
 	fin_ack_info.reset_wait = 0;
 
+	struct timespec start, end;
+	uint64_t diff;
+
+	clock_gettime(CLOCK_MONOTONIC, &start);
+
 	pthread_t fin_ack_thread;
 	pthread_create(&fin_ack_thread, NULL, wait_for_fin_ack, &fin_ack_info);
 
-	struct timespec start, end;
-	uint64_t diff = 0;
-
-	clock_gettime(CLOCK_MONOTONIC, &start);
+	diff = 0;
 	while (diff < TIME_WAIT_IN_NS) {
 		clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -294,7 +296,7 @@ int main(int argc, char *argv[])
 
     struct sockaddr_in si_me, si_other;
     int sockfd, i, slen = sizeof(si_other), recv_len;
-     
+
     //create a UDP socket
     if ((sockfd=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
     {
