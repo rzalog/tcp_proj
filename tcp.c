@@ -6,6 +6,7 @@
 #include <netdb.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <string.h>
 #include <arpa/inet.h>
 #include "tcp.h"
 

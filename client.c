@@ -121,11 +121,11 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 {
 	// Send initial packet to server: SYN
 	tcp_packet send_packet;
-	tcp_header_init(&send_packet.header, 0, 0, 0, 1, 0);
-	tcp_packet_init(&send_packet, NULL, 0);
+	tcp_header_init(&p_timeout->packet->header, 0, 0, 0, 1, 0);
+	tcp_packet_init(p_timeout->packet, NULL, 0);
 
 	//packet_timeout p_timeout;
-	if (send_and_timeout(p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
+	if (send_and_timeout(p_timeout, p_timeout->packet, sock->sockfd, sock->si_other) < 0)
 	{
 		die("Coudln't send SYN");
 	}
@@ -142,10 +142,10 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 
 	sock->cur_ack_num = recv_packet.header.seq_num + recv_packet.data_len;
 
-	tcp_header_init(&send_packet.header, 0, sock->cur_ack_num, 1, 0, 0);
-	tcp_packet_init(&send_packet, fname, strlen(fname));
+	tcp_header_init(&p_timeout->packet->header, 0, sock->cur_ack_num, 1, 0, 0);
+	tcp_packet_init(p_timeout->packet, fname, strlen(fname));
 
-	if (send_and_timeout(p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
+	if (send_and_timeout(p_timeout, p_timeout->packet, sock->sockfd, sock->si_other) < 0)
 	{
 		die("Couldn't send filename");
 	}
@@ -334,6 +334,7 @@ int main(int argc, char *argv[])
     sock.si_other = &si_other;
 
     packet_timeout p_timeout; //used for the ack of the filename from the first data packet
+    p_timeout.packet = (tcp_packet *)malloc(sizeof(tcp_packet));
 
     if (handshake(&sock, file_name, &p_timeout) < 0) {
     	die("Couldn't complete handshake");

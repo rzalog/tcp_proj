@@ -150,6 +150,7 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
 int send_file(socket_info *sock, char *fname)
 {
 	int fd = open(fname, O_RDONLY);
+	int i;
 
 	if (fd < 0)
 	{
@@ -198,7 +199,7 @@ int send_file(socket_info *sock, char *fname)
 		print_RECV(ack);
 
 		int which_packet = -1;
-		for (int i = 0; i < WINDOW_SIZE; i++) {
+		for (i = 0; i < WINDOW_SIZE; i++) {
 			if (ack == window[i].header.seq_num) {
 				which_packet = i;
 				break;

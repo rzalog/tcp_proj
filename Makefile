@@ -1,6 +1,6 @@
 ALL = client server
 HEADERS = tcp.h
-FLAGS = -g -lpthread
+FLAGS = -g -lpthread -lrt
 
 all: $(ALL)
 
