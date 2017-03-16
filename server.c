@@ -236,7 +236,7 @@ int close_connection(socket_info *sock)
 	send_and_timeout(&p_timeout, &fin_packet, sock->sockfd, sock->si_other);
 
 	tcp_packet fin_ack_packet;
-	tcp_recv_packet(&fin_ack_packet, sock->sockfd, sock->si_other);
+	recv_tcp_packet(&fin_ack_packet, sock->sockfd, sock->si_other);
 
 	if (fin_ack_packet.header.fin && fin_ack_packet.header.ack) {
 		p_timeout.has_been_acked = 1;

@@ -135,7 +135,7 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 	{
 		die("Couldn't receive SYN ACK");
 	}
-	p_timeout.has_been_acked = 1;
+	p_timeout->has_been_acked = 1;
 
 	// don't need to print receiving SYN ACK
 
@@ -216,12 +216,17 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 int close_connection(socket_info *sock, tcp_packet *fin_packet)
 {
 	// FIN-ACK procedure
+	tcp_packet fin_ack_packet;
+	tcp_header_init(&fin_ack_packet.header, 0, fin_packet->header.seq_num, 1, 0, 1);
+	tcp_packet_init(&fin_ack_packet, NULL, 0);
 
+	packet_timeout p_fin_ack_timeout;
+	send_and_timeout(&p_fin_ack_timeout, &fin_ack_packet, sock->sockfd, sock->si_other);
 
+	tcp_packet final_ack_packet;
+	recv_tcp_packet(&final_ack_packet, sock->sockfd, sock->si_other);
 
-
-
-
+	p_fin_ack_timeout.has_been_acked = 1;
 
 	close(sock->sockfd);
 	return 0;
