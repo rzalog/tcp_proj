@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <time.h>
 #include "tcp.h"
 
@@ -29,6 +30,8 @@ typedef struct {
 	pthread_t timeout_thread;
 	int sockfd;
 	const struct sockaddr_in *dest_addr;
+    int is_syn;
+    int is_fin;
 } packet_timeout;
 
 
@@ -40,17 +43,17 @@ void die(char *s)
 
 void print_SEND(int ack_num, int retransmission, int syn, int fin)
 {
-  if (syn)
-    fprintf(stdout, "Sending packet SYN");
-  else
-  {
-    fprintf(stdout, "Sending packet %d", ack_num);
-    if (retransmission)
-        fprintf(stdout, " Retransmission");
-    if (fin)
-        fprintf(stdout, " FIN");
-  }
-  fprintf(stdout, "\n");
+    if (syn)
+        fprintf(stdout, "Sending packet SYN");
+    else
+        fprintf(stdout, "Sending packet %d", ack_num);
+
+	if (retransmission)
+	    fprintf(stdout, " Retransmission");
+	if (fin)
+	    fprintf(stdout, " FIN");
+
+    fprintf(stdout, "\n");
 }
 
 void print_RECV(int seq_num)
@@ -79,6 +82,7 @@ void *timeout_check(void *p_timeout_)
 			{
 				n = send_tcp_packet(p_timeout->packet, p_timeout->sockfd, p_timeout->dest_addr);
 			}
+			print_SEND(p_timeout->packet->header.ack_num, 1, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
 
 			// reset timestamp
 			clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
@@ -114,33 +118,38 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 
 int handshake(socket_info *sock, char *fname)
 {
-	// Send initial packet to server
+	// Send initial packet to server: SYN
 	tcp_packet send_packet;
 	tcp_header_init(&send_packet.header, 0, 0, 0, 1, 0);
 	tcp_packet_init(&send_packet, NULL, 0);
 
-	if (send_tcp_packet(&send_packet, sock->sockfd, sock->si_other) < 0)
+	packet_timeout p_timeout;
+	if (send_and_timeout(&p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
 	{
-		die("Couldn't send SYN");
+		die("Coudln't send SYN");
 	}
 	print_SEND(0, 0, 1, 0);
 
 	tcp_packet recv_packet;
-
 	if (recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other) < 0 || !recv_packet.header.syn)
 	{
-		die("Couldn't receive SYN");
+		die("Couldn't receive SYN ACK");
 	}
+	p_timeout.has_been_acked = 1;
+
+	// don't need to print receiving SYN ACK
 
 	sock->cur_ack_num = recv_packet.header.seq_num + recv_packet.data_len;
 
 	tcp_header_init(&send_packet.header, 0, sock->cur_ack_num, 1, 0, 0);
 	tcp_packet_init(&send_packet, fname, strlen(fname));
 
-	if (send_tcp_packet(&send_packet, sock->sockfd, sock->si_other) < 0)
+	if (send_and_timeout(&p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0)
 	{
 		die("Couldn't send filename");
 	}
+	print_SEND(sock->cur_ack_num, 0, 0, 0);
+
 
 	return 0;	
 }
@@ -161,7 +170,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet)
 
 		// Check for connection close
 		if (recv_packet.header.fin) {
-			tcp_header_init(&fin_packet->header, 0, recv_packet.header.seq_num, 0, 0, 1);
+			tcp_header_init(&fin_packet->header, 0, recv_packet.header.seq_num, 1, 0, 1);
 			tcp_packet_init(fin_packet, NULL, 0);
 			break;
 		}
@@ -173,6 +182,10 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet)
 		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
 
 		// Process data (adjust window, write to file if needed)
+        
+
+
+        
 	}
 
 	return 0;
