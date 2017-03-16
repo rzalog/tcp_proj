@@ -21,8 +21,15 @@ void die(char *s)
 typedef struct {
 	int cur_seq_num;
 	int sockfd;
-	struct sockaddr_in *si_other; 
+	struct sockaddr_in *si_other;
 } socket_info;
+
+typedef struct {
+	tcp_packet *packet;
+	struct timespec time_stamp;
+	int has_been_acked;
+	pthread_t timeout_thread;
+} packet_timeout;
 
 void print_SEND(int seq_num, int retransmission, int syn, int fin)
 {
@@ -41,19 +48,42 @@ void print_RECV(int ack_num)
     fprintf(stdout, "Receiving packet %d\n", ack_num);
 }
 
-
-void *timeout_check(void *arg)
+void *timeout_check(void *p_timeout_)
 {
-  while (1)
-  {
+	packet_timeout *p_timeout = (packet_timeout *) p_timeout_;
 
+	// Handle waiting
+	while (!p_timeout->has_been_acked) {
+		// Check timestamp
 
+		// If timeout time has passed, then re-send
 
+		// Wait for signal from main thread, that will receive
+		//	the ACK, to stop sending
+	}
 
+	free(p_timeout);
+	p_timeout = NULL;
 
-  }
+	return NULL;
+}
 
+int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int sockfd, const struct sockaddr_in *dest_addr)
+{
+	// Just a simple wrapper function
+	p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
+	p_timeout->has_been_acked = 0;
+	p_timeout->packet = send_packet;
+	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
+	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
+	if (n == 0) {
+		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
+	} else {
+		free(p_timeout);
+		p_timeout = NULL;
+	}
 
+	return n;
 }
 
 int handshake(socket_info *sock, tcp_packet *first_packet)
@@ -70,7 +100,8 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
     tcp_header_init(&send_packet.header, sock->cur_seq_num, 0, 1, 1, 0);
     tcp_packet_init(&send_packet, NULL, 0);
 
-    if (send_tcp_packet(&send_packet, sock->sockfd, sock->si_other) < 0) {
+    packet_timeout *p_timeout;
+    if (send_and_timeout(p_timeout, &send_packet, sock->sockfd, sock->si_other) < 0) {
       die("Couldn't send SYN ACK");
     }
     print_SEND(sock->cur_seq_num, 0, 1, 0);
@@ -79,6 +110,7 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
     if (recv_tcp_packet(first_packet, sock->sockfd, sock->si_other) < 0) {
       die("Couldn't receive ACK to complete handshake");
     }
+    p_timeout->has_been_acked = 1;
 
     // For some reason you have to do this
     sock->cur_seq_num++;
@@ -96,6 +128,7 @@ int send_file(socket_info *sock, char *fname)
 	}
 
 	tcp_packet window[WINDOW_SIZE]; // 5120 / 1024
+	packet_timeout *p_timeouts[WINDOW_SIZE];
 
 	int base = 0;
 	int end = 4;
@@ -104,53 +137,55 @@ int send_file(socket_info *sock, char *fname)
 	int packets_sent = 0;
 	int acks_received = 0;
 
-	int more_data = 1;    
+	int more_data = 1;
 
 	while (more_data || (base != end))
 	{
-	  while (next != (end + 1) % WINDOW_SIZE)
-	{
-		// Read from the file into temp buffer
-		char buf[TCP_MAX_DATA_LEN];
-		int bytes_read = read(fd, buf, TCP_MAX_DATA_LEN);
-
-		tcp_header_init(&window[next].header, sock->cur_seq_num, 0, 1, 0, 0);
-		tcp_packet_init(&window[next], (void *) buf, bytes_read);
-
-		if (bytes_read < TCP_MAX_DATA_LEN) // read the last packet
-			{
-			more_data = 0;
-		}
-
-		if (send_tcp_packet(&window[next], sock->sockfd, sock->si_other) < 0)
+	  	while (next != (end + 1) % WINDOW_SIZE)
 		{
-		  die("Sending data");
+			// Read from the file into temp buffer
+			char buf[TCP_MAX_DATA_LEN];
+			int bytes_read = read(fd, buf, TCP_MAX_DATA_LEN);
+
+			tcp_header_init(&window[next].header, sock->cur_seq_num, 0, 1, 0, 0);
+			tcp_packet_init(&window[next], (void *) buf, bytes_read);
+
+			if (bytes_read < TCP_MAX_DATA_LEN) // read the last packet
+			{
+				more_data = 0;
+			}
+
+			if (send_tcp_packet(&window[next], sock->sockfd, sock->si_other) < 0)
+			{
+			  die("Sending data");
+			}
+			print_SEND(sock->cur_seq_num, 0, 0, 0);
+
+			sock->cur_seq_num += bytes_read;
+			//set time at next index in time array
+			// OR even better, set an actual timeout... timer
+
+			next = (next + 1) % WINDOW_SIZE;
 		}
-		print_SEND(sock->cur_seq_num, 0, 0, 0);
 
-		sock->cur_seq_num += bytes_read;
-		//set time at next index in time array
-		// OR even better, set an actual timeout... timer
+	// Receive ACK
+	tcp_packet recv_packet;
+	recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
 
-		next = (next + 1) % WINDOW_SIZE;
+	int ack = recv_packet.header.ack_num;
+	print_RECV(ack);
+
+	// Free the packet_timeout
+
+	// Adjust window size
+	if (window[base].header.seq_num + window[base].data_len == ack)
+	{
+		base += 1; // adjust up to last unacked packet
 	}
-
-	  // Receive ACK
-	  tcp_packet recv_packet;
-	  recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
-
-	  int ack = recv_packet.header.ack_num;
-	  print_RECV(ack);
-
-	  // Adjust window size
-	  if (window[base].header.seq_num + window[base].data_len == ack)
-	  {
-	    base += 1; // adjust up to last unacked packet
-	  }
-	  // adjust base
-	  if (more_data) {
-	    // adjust end
-	  }
+	// adjust base
+	if (more_data) {
+	// adjust end
+	}
 	}
 	return 0;
 }

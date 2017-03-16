@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <time.h>
 #include "tcp.h"
  
 #define OUTPUT_FILE "received.data"
@@ -105,11 +106,6 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet)
 		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
 
 		// Process data (adjust window, write to file if needed)
-	}
-
-	// Finish receiving + ACK'ing any remaining packets
-	while (0) {
-		// do stuff
 	}
 
 	return 0;
