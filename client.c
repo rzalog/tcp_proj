@@ -166,13 +166,20 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 
     int base_ack_num = sock->cur_ack_num;
 
-    // need to record the ack for the filename
+    int first_packet_received = 1;
 
 	while (1)
     {
 		tcp_packet recv_packet;
 		recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
         print_RECV(recv_packet.header.seq_num);
+
+        // the filename packet is ACKed on receiving first packet
+        if (first_packet_received)
+        {
+            p_timeout->has_been_acked = 1;
+            first_packet_received = 0;
+        }
 
 		// Check for connection close
 		if (recv_packet.header.fin)
@@ -257,7 +264,7 @@ int main(int argc, char *argv[])
     sock.sockfd = sockfd;
     sock.si_other = &si_other;
 
-    packet_timeout p_timeout; 
+    packet_timeout p_timeout; //used for the ack of the filename from the first data packet
 
     if (handshake(&sock, file_name, &p_timeout) < 0) {
     	die("Couldn't complete handshake");
