@@ -160,7 +160,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 	// do some stuff
 	int fd = open(OUTPUT_FILE, O_WRONLY);
 
-	tcp_packet* window[WINDOW_SIZE];
+	tcp_packet window[WINDOW_SIZE];
 	int window_slot_filled[WINDOW_SIZE];
 	memset(window_slot_filled, 0, WINDOW_SIZE * sizeof(int));
 
@@ -179,12 +179,12 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 	while (1)
     {	
     	// help to determine the 'pseudo-sequence number'
-    	if (base_seq_num > MAX_SEQ_NUM - RECV_WNDOW_DEFAULT && wrap_around_flag)
+    	if (base_seq_num > MAX_SEQ_NUM - RECV_WNDW_DEFAULT && wrap_around_flag)
     	{
     		wrap_arounds += 1;
     		wrap_around_flag = 0;
     	}
-    	else (base_seq_num < MAX_SEQ_NUM - RECV_WNDOW_DEFAULT)
+    	else if (base_seq_num < MAX_SEQ_NUM - RECV_WNDW_DEFAULT)
     	{
     		wrap_around_flag = 1;
     	}
@@ -196,7 +196,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 
         long pseudo_seq_num;
         // create pseudo-sequence number
-        if (recv_packet.header.seq_num < MAX_SEQ_NUM - RECV_WNDOW_DEFAULT)
+        if (recv_packet.header.seq_num < MAX_SEQ_NUM - RECV_WNDW_DEFAULT)
         {
         	pseudo_seq_num = recv_packet.header.seq_num + MAX_SEQ_NUM * wrap_arounds;
         }
@@ -232,7 +232,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 				// have not received packet yet
             	if (window_slot_filled[index] == 0)
             	{
-					memcpy(window[index], &recv_packet, sizeof(tcp_packet));
+					memcpy(&window[index], &recv_packet, sizeof(tcp_packet));
 					window_slot_filled[index] = 1;
 				}
 				else

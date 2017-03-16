@@ -94,6 +94,8 @@ void *wait_for_fin_ack(void *fin_ack_info_)
 	recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
 
 	fin_ack_info->reset_wait = 1;
+
+	return NULL;
 }
 
 int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int sockfd, const struct sockaddr_in *dest_addr)
