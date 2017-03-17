@@ -110,7 +110,7 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	print_SEND(p_timeout->packet->header.seq_num, 0, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
 
 	if (n == 0) {
-		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
+		//pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
 	}
 
 	return n;
@@ -142,7 +142,7 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
     p_timeout.has_been_acked = 1;
 
     // For some reason you have to do this
-    sock->cur_seq_num++;
+    //sock->cur_seq_num++;
 
     return 0;
 }
@@ -168,28 +168,32 @@ int send_file(socket_info *sock, char *fname)
 
 	while (more_data || (base != end))
 	{
-	  	while (next != (end + 1) % WINDOW_SIZE)
-		{
-			// Read from the file into temp buffer
-			char buf[TCP_MAX_DATA_LEN];
-			int bytes_read = read(fd, buf, TCP_MAX_DATA_LEN);
+		int packets_to_send = end - next + 1; //end + (5 - next) + 1;
+		if (packets_to_send < 0)
+			packets_to_send += 5;
+		if (next != end) {
+		  	do {
+				// Read from the file into temp buffer
+				char buf[TCP_MAX_DATA_LEN];
+				int bytes_read = read(fd, buf, TCP_MAX_DATA_LEN);
 
-			tcp_header_init(&window[next].header, sock->cur_seq_num, 0, 1, 0, 0);
-			tcp_packet_init(&window[next], (void *) buf, bytes_read);
+				tcp_header_init(&window[next].header, sock->cur_seq_num, 0, 1, 0, 0);
+				tcp_packet_init(&window[next], (void *) buf, bytes_read);
 
-			if (bytes_read < TCP_MAX_DATA_LEN) // read the last packet
-			{
-				more_data = 0;
-			}
+				if (bytes_read < TCP_MAX_DATA_LEN) // read the last packet
+				{
+					more_data = 0;
+				}
 
-			if (send_and_timeout(&p_timeouts[next], &window[next], sock->sockfd, sock->si_other) < 0)
-			{
-			  die("Sending data");
-			}
+				if (send_and_timeout(&p_timeouts[next], &window[next], sock->sockfd, sock->si_other) < 0)
+				{
+				  die("Sending data");
+				}
 
-			sock->cur_seq_num = (sock->cur_seq_num + bytes_read) % MAX_SEQ_NUM;
+				sock->cur_seq_num = (sock->cur_seq_num + bytes_read) % MAX_SEQ_NUM;
 
-			next = (next + 1) % WINDOW_SIZE;
+				next = (next + 1) % WINDOW_SIZE;
+			} while (next != end);
 		}
 
 		tcp_packet recv_packet;

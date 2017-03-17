@@ -108,7 +108,7 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
 	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
 	if (n == 0) {
-		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
+		//pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
 	} else {
 		free(p_timeout);
 		p_timeout = NULL;
@@ -157,8 +157,8 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 
 int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeout)
 {
-	// do some stuff
-	int fd = open(OUTPUT_FILE, O_WRONLY);
+	// set up file receiving
+	int fd = open(OUTPUT_FILE, O_WRONLY|O_CREAT,0640);
 
 	tcp_packet window[WINDOW_SIZE];
 	int window_slot_filled[WINDOW_SIZE];
@@ -166,6 +166,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
 
 	int base = 0;
 	int end = 4;
+	int index = 0;
 
     long base_seq_num = sock->cur_ack_num;
 
@@ -226,9 +227,12 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
             if (pseudo_seq_num >= base_seq_num)
             {
             	// get packet's index in window buffer relative to base
-            	int index = (((pseudo_seq_num - base_seq_num)/TCP_MAX_DATA_LEN) + base) % WINDOW_SIZE;
+            	index = ( (pseudo_seq_num - base_seq_num));
+		index = index/TCP_MAX_DATA_LEN;
+		index = index + base;
+		index = index % WINDOW_SIZE;
 				
-
+		fprintf(stdout, "%d %ld %ld %d %d %ld\n", index, pseudo_seq_num, base_seq_num, base, TCP_MAX_DATA_LEN, pseudo_seq_num - base_seq_num);
 				// have not received packet yet
             	if (window_slot_filled[index] == 0)
             	{
@@ -248,16 +252,22 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
             	is_retransmission = 1;
             }
 
+		//fprintf(stdout, "%s\n", window[index].data);
+
             // write to file
             while (window_slot_filled[base] == 1)
             {
             	int bytes_written = write(fd, window[base].data, window[base].data_len);
+
+		fprintf(stdout, "bytes written: %d\n", bytes_written);
 
             	base_seq_num = base_seq_num + window[base].data_len;
 
             	window_slot_filled[base] = 0;
             	base = (base + 1)%5;
             }
+
+		fsync(fd);
 
             // need to determine if ACK to be sent is a retransmission
 
