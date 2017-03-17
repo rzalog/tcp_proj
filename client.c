@@ -11,7 +11,7 @@
 #include "tcp.h"
 
 #define BILLION 1000000000
-#define TIMEOUT_IN_NS 500000000
+#define TIMEOUT_IN_US 500000
 
 #define OUTPUT_FILE "received.data"
 
@@ -20,17 +20,6 @@
  	int sockfd;
  	struct sockaddr_in *si_other;
  } socket_info;
-
-
-typedef struct {
-	tcp_packet *packet;
-	struct timespec time_stamp;
-	int has_been_acked;
-	int sockfd;
-	const struct sockaddr_in *dest_addr;
-    int is_syn;
-    int is_fin;
-} packet_timeout;
 
 
 void die(char *s)
@@ -60,108 +49,61 @@ void print_RECV(int seq_num)
 }
 
 
-void *timeout_check(void *p_timeout_)
+int handshake(socket_info *sock)
 {
-	packet_timeout *p_timeout = (packet_timeout*) p_timeout_;
-printf("Thread started\n");
-	while (!p_timeout->has_been_acked)
-	{
-		// check timestamp
-		struct timespec cur_time;
-		clock_gettime(CLOCK_MONOTONIC, &cur_time);
+	tcp_packet syn_packet;
+    tcp_header_init(&syn_packet.header, 0, 0, 0, 1, 0);
+    tcp_packet_init(&syn_packet, NULL, 0);
 
-		// if timeout time has passed
-		uint64_t diff = BILLION * (cur_time.tv_sec - p_timeout->time_stamp.tv_sec);
-		diff += cur_time.tv_nsec - p_timeout->time_stamp.tv_nsec;
+	int is_retransmission = 0;
 
-		if (diff > TIMEOUT_IN_NS)
-		{
-			int n = 1;
-			while (n != 0)
-			{
-				n = send_tcp_packet(p_timeout->packet, p_timeout->sockfd, p_timeout->dest_addr);
-			}
-			print_SEND(p_timeout->packet->header.ack_num, 1, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
+	fd_set set;
+	struct timeval timeout;
 
-			// reset timestamp
-			clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
-		}
-	}
+    do {
+        send_tcp_packet(&syn_packet, sock->sockfd, sock->si_other);
+        print_SEND(0, is_retransmission, 1, 0);
 
-	free(p_timeout);
-	p_timeout_ = NULL;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = TIMEOUT_IN_US;
 
-	return NULL;
-}
+        FD_ZERO(&set);
+        FD_SET(sock->sockfd, &set);
+    } while (select(sock->sockfd+1, &set, NULL, NULL, &timeout) < 1);
 
-int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int sockfd, const struct sockaddr_in *dest_addr)
-{
-	// Just a simple wrapper function
-	//p_timeout = (packet_timeout *)malloc(sizeof(packet_timeout));
-	p_timeout->has_been_acked = 0;
-	p_timeout->packet = send_packet;
-	p_timeout->sockfd = sockfd;
-	p_timeout->dest_addr = dest_addr;
+    tcp_packet syn_ack_packet;
+    recv_tcp_packet(&syn_ack_packet, sock->sockfd, sock->si_other);
 
-	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
-	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
-	if (n == 0) {
-	} else {
-		free(p_timeout);
-		p_timeout = NULL;
-	}
-
-	return n;
-}
-
-int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
-{
-	packet_timeout p_timeout_temp;
-	p_timeout_temp.packet = (tcp_packet *)malloc(sizeof(tcp_packet));
-
-	//tcp_packet send_packet;
-	tcp_header_init(&p_timeout_temp.packet->header, 0, 0, 0, 1, 0);
-	tcp_packet_init(p_timeout_temp.packet, NULL, 0);
-
-	// Send initial packet to server: SYN
-	/*
-	tcp_packet send_packet;
-	tcp_header_init(&p_timeout->packet->header, 0, 0, 0, 1, 0);
-	tcp_packet_init(p_timeout->packet, NULL, 0);
-	*/
-	
-	if (send_and_timeout(&p_timeout_temp, p_timeout_temp.packet, sock->sockfd, sock->si_other) < 0)
-	{
-		die("Coudln't send SYN");
-	}
-	print_SEND(0, 0, 1, 0);
-
-	tcp_packet recv_packet;
-	if (recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other) < 0 || !recv_packet.header.syn)
-	{
-		die("Couldn't receive SYN ACK");
-	}
-	p_timeout_temp.has_been_acked = 1;
-
-	// don't need to print receiving SYN ACK
-
-	sock->cur_ack_num = recv_packet.header.seq_num + recv_packet.data_len;
-
-	tcp_header_init(&p_timeout->packet->header, 0, sock->cur_ack_num, 1, 0, 0);
-	tcp_packet_init(p_timeout->packet, fname, strlen(fname));
-
-	if (send_and_timeout(p_timeout, p_timeout->packet, sock->sockfd, sock->si_other) < 0)
-	{
-		die("Couldn't send filename");
-	}
-	//print_SEND(recv_packet.header.seq_num, 0, 0, 0);
-
+    sock->cur_ack_num = syn_ack_packet.header.seq_num + syn_ack_packet.data_len + 1;
 
 	return 0;	
 }
 
-int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeout)
+int recv_file(socket_info *sock, char *fname, tcp_packet * fin_packet)
 {	
+	// send filename to server
+	tcp_packet filename_packet;
+    tcp_header_init(&filename_packet.header, 0, sock->cur_ack_num, 1, 0, 0);
+	tcp_packet_init(&filename_packet, fname, strlen(fname));
+
+	int is_retransmission = 0;
+
+	fd_set set;
+	struct timeval timeout;
+
+	// retransmit if timeout
+	do {
+        send_tcp_packet(&filename_packet, sock->sockfd, sock->si_other);
+        print_SEND(0, is_retransmission, 1, 0);
+
+        timeout.tv_sec = 0;
+        timeout.tv_usec = TIMEOUT_IN_US;
+
+        FD_ZERO(&set);
+        FD_SET(sock->sockfd, &set);
+    } while (select(sock->sockfd+1, &set, NULL, NULL, &timeout) < 1);
+
+
 	// set up file receiving
 	int fd = open(OUTPUT_FILE, O_WRONLY|O_CREAT|O_TRUNC,0640);
 
@@ -181,7 +123,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
     unsigned int wrap_arounds = 0;
 
     int wrap_around_flag = 1;
-    int is_retransmission = 0;
+    is_retransmission = 0;
 
 	int done = 0;
 
@@ -212,13 +154,6 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
         else
         {
         	pseudo_seq_num = recv_packet.header.seq_num + MAX_SEQ_NUM * (wrap_arounds-1);
-        }
-
-        // the filename packet is ACKed on receiving first packet
-        if (first_packet_received)
-        {
-            p_timeout->has_been_acked = 1;
-            first_packet_received = 0;
         }
 
 		// Check for connection close
@@ -300,13 +235,24 @@ int close_connection(socket_info *sock, tcp_packet *fin_packet)
 	tcp_header_init(&fin_ack_packet.header, 0, fin_packet->header.seq_num, 1, 0, 1);
 	tcp_packet_init(&fin_ack_packet, NULL, 0);
 
-	packet_timeout p_fin_ack_timeout;
-	send_and_timeout(&p_fin_ack_timeout, &fin_ack_packet, sock->sockfd, sock->si_other);
+	int is_retransmission = 0;
+
+	fd_set set;
+	struct timeval timeout;
+
+    do {
+        send_tcp_packet(&fin_ack_packet, sock->sockfd, sock->si_other);
+        print_SEND(fin_ack_packet.header.seq_num, is_retransmission, 0, 1);
+
+        timeout.tv_sec = 0;
+        timeout.tv_usec = TIMEOUT_IN_US;
+
+        FD_ZERO(&set);
+        FD_SET(sock->sockfd, &set);
+    } while (select(sock->sockfd+1, &set, NULL, NULL, &timeout) < 1);
 
 	tcp_packet final_ack_packet;
 	recv_tcp_packet(&final_ack_packet, sock->sockfd, sock->si_other);
-
-	p_fin_ack_timeout.has_been_acked = 1;
 
 	close(sock->sockfd);
 	return 0;
@@ -349,15 +295,13 @@ int main(int argc, char *argv[])
     sock.sockfd = sockfd;
     sock.si_other = &si_other;
 
-    packet_timeout p_timeout; //used for the ack of the filename from the first data packet
-    p_timeout.packet = (tcp_packet *)malloc(sizeof(tcp_packet));
 
-    if (handshake(&sock, file_name, &p_timeout) < 0) {
+    if (handshake(&sock) < 0) {
     	die("Couldn't complete handshake");
     }
 
     tcp_packet fin_packet;
-    if (recv_file(&sock, &fin_packet, &p_timeout) < 0) {
+    if (recv_file(&sock, file_name, &fin_packet) < 0) {
     	die("Couldn't receive file");
     }
 
