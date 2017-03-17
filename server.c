@@ -110,7 +110,7 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	print_SEND(p_timeout->packet->header.seq_num, 0, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
 
 	if (n == 0) {
-		//pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
+		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
 	}
 
 	return n;
@@ -122,7 +122,7 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
     tcp_packet client_packet;
 
     if (recv_tcp_packet(&client_packet, sock->sockfd, sock->si_other) < 0 || !client_packet.header.syn) {
-      die("Couldn't receive SYN");
+      die("Couldn't receive SYN\n");
     }
 
     // Send response
@@ -142,7 +142,7 @@ int handshake(socket_info *sock, tcp_packet *first_packet)
     p_timeout.has_been_acked = 1;
 
     // For some reason you have to do this
-    //sock->cur_seq_num++;
+    sock->cur_seq_num++;
 
     return 0;
 }
@@ -159,6 +159,9 @@ int send_file(socket_info *sock, char *fname)
 
 	tcp_packet window[WINDOW_SIZE]; // 5120 / 1024
 	packet_timeout p_timeouts[WINDOW_SIZE];
+	for (i = 0; i < WINDOW_SIZE; i++) {
+		p_timeouts[i].has_been_acked = 1;
+	}
 
 	int base = 0;
 	int end = 4;
@@ -166,12 +169,15 @@ int send_file(socket_info *sock, char *fname)
 
 	int more_data = 1;
 
-	while (more_data || (base != end))
+	int remaining_to_ack = -1;
+	int have_acked = 0;
+
+	while (more_data || (have_acked != remaining_to_ack))
 	{
 		int packets_to_send = end - next + 1; //end + (5 - next) + 1;
 		if (packets_to_send < 0)
 			packets_to_send += 5;
-		if (next != end) {
+		if (next != end && more_data) {
 		  	do {
 				// Read from the file into temp buffer
 				char buf[TCP_MAX_DATA_LEN];
@@ -182,6 +188,13 @@ int send_file(socket_info *sock, char *fname)
 
 				if (bytes_read < TCP_MAX_DATA_LEN) // read the last packet
 				{
+					remaining_to_ack = 1;
+					for (i = 0; i < WINDOW_SIZE; i++) {
+						if (!p_timeouts[i].has_been_acked) {
+							remaining_to_ack++;
+						}
+					}
+
 					more_data = 0;
 				}
 
@@ -193,11 +206,15 @@ int send_file(socket_info *sock, char *fname)
 				sock->cur_seq_num = (sock->cur_seq_num + bytes_read) % MAX_SEQ_NUM;
 
 				next = (next + 1) % WINDOW_SIZE;
-			} while (next != end);
+			} while (next != ((end + 1)%5) && more_data);
 		}
 
 		tcp_packet recv_packet;
 		recv_tcp_packet(&recv_packet, sock->sockfd, sock->si_other);
+
+		if (!more_data) {
+			have_acked++;
+		}
 
 		int ack = recv_packet.header.ack_num;
 		print_RECV(ack);
@@ -211,20 +228,18 @@ int send_file(socket_info *sock, char *fname)
 		}
 
 		// If we found a matching packet in our window
-		if (!(which_packet < 0)) {
+		if (which_packet >= 0) {
 			p_timeouts[which_packet].has_been_acked = 1;
 
-			int base_has_advanced = 0;
-			int old_end = end;
 			while (p_timeouts[base].has_been_acked) {
-				base_has_advanced = 1;
+				if (have_acked == remaining_to_ack) {
+					break;
+				}
+
 				base = (base + 1) % WINDOW_SIZE;
 				if (more_data) {
 					end = (end + 1) % WINDOW_SIZE;
 				}
-			}
-			if (base_has_advanced) {
-				next = (old_end + 1) % WINDOW_SIZE;
 			}
 		}
 	}
@@ -286,7 +301,6 @@ int close_connection(socket_info *sock)
 
 	pthread_cancel(fin_ack_thread);
 
-	close(sock->sockfd);
 	return 0;
 }
 
@@ -304,6 +318,8 @@ int main(int argc, char *argv[])
     struct sockaddr_in si_me, si_other;
     int sockfd, i, slen = sizeof(si_other), recv_len;
 
+while(1) {
+
     //create a UDP socket
     if ((sockfd=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
     {
@@ -317,6 +333,9 @@ int main(int argc, char *argv[])
     si_me.sin_port = htons(portno);
     si_me.sin_addr.s_addr = htonl(INADDR_ANY);
      
+
+
+
     //bind socket to port
     if( bind(sockfd, (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
     {
@@ -328,7 +347,7 @@ int main(int argc, char *argv[])
     sock.sockfd = sockfd;
     sock.si_other = &si_other;
 
-    while(1) {
+    
 	    tcp_packet first_packet;
 	    if (handshake(&sock, &first_packet) < 0) {
 	    	die("Couldn't complete handshake");
@@ -346,7 +365,11 @@ int main(int argc, char *argv[])
 	    if (close_connection(&sock) < 0) {
 	    	die("Couldn't close connection");
 	    }
-	}
-	
+
+		
+	close(sockfd);
+
+}
+
     return 0;
 }

@@ -65,7 +65,7 @@ void print_RECV(int seq_num)
 void *timeout_check(void *p_timeout_)
 {
 	packet_timeout *p_timeout = (packet_timeout*) p_timeout_;
-
+printf("Thread started\n");
 	while (!p_timeout->has_been_acked)
 	{
 		// check timestamp
@@ -108,7 +108,7 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	clock_gettime(CLOCK_MONOTONIC, &p_timeout->time_stamp);
 	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
 	if (n == 0) {
-		//pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
+		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
 	} else {
 		free(p_timeout);
 		p_timeout = NULL;
@@ -119,13 +119,21 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 
 int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 {
+	packet_timeout p_timeout_temp;
+	p_timeout_temp.packet = (tcp_packet *)malloc(sizeof(tcp_packet));
+
+	//tcp_packet send_packet;
+	tcp_header_init(&p_timeout_temp.packet->header, 0, 0, 0, 1, 0);
+	tcp_packet_init(p_timeout_temp.packet, NULL, 0);
+
 	// Send initial packet to server: SYN
+	/*
 	tcp_packet send_packet;
 	tcp_header_init(&p_timeout->packet->header, 0, 0, 0, 1, 0);
 	tcp_packet_init(p_timeout->packet, NULL, 0);
-
-	//packet_timeout p_timeout;
-	if (send_and_timeout(p_timeout, p_timeout->packet, sock->sockfd, sock->si_other) < 0)
+	*/
+	
+	if (send_and_timeout(&p_timeout_temp, p_timeout_temp.packet, sock->sockfd, sock->si_other) < 0)
 	{
 		die("Coudln't send SYN");
 	}
@@ -136,7 +144,8 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 	{
 		die("Couldn't receive SYN ACK");
 	}
-	p_timeout->has_been_acked = 1;
+	p_timeout_temp.has_been_acked = 1;
+	//pthread_join(p_timeout_temp.timeout_thread, NULL);
 
 	// don't need to print receiving SYN ACK
 
@@ -149,43 +158,46 @@ int handshake(socket_info *sock, char *fname, packet_timeout *p_timeout)
 	{
 		die("Couldn't send filename");
 	}
-	print_SEND(recv_packet.header.seq_num, 0, 0, 0);
+	//print_SEND(recv_packet.header.seq_num, 0, 0, 0);
 
 
 	return 0;	
 }
 
 int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeout)
-{
+{	
 	// set up file receiving
-	int fd = open(OUTPUT_FILE, O_WRONLY|O_CREAT,0640);
+	int fd = open(OUTPUT_FILE, O_WRONLY|O_CREAT|O_TRUNC,0640);
 
 	tcp_packet window[WINDOW_SIZE];
 	int window_slot_filled[WINDOW_SIZE];
 	memset(window_slot_filled, 0, WINDOW_SIZE * sizeof(int));
 
-	int base = 0;
-	int end = 4;
-	int index = 0;
+	unsigned int base = 0;
 
-    long base_seq_num = sock->cur_ack_num;
+	unsigned int index = 0;
 
-    int first_packet_received = 1;
+    unsigned int base_seq_num = sock->cur_ack_num;
+	unsigned int pseudo_seq_num;
 
-    int wrap_arounds = 0;
+    unsigned int first_packet_received = 1;
+
+    unsigned int wrap_arounds = 0;
 
     int wrap_around_flag = 1;
     int is_retransmission = 0;
 
+	int done = 0;
+
 	while (1)
     {	
     	// help to determine the 'pseudo-sequence number'
-    	if (base_seq_num > MAX_SEQ_NUM - RECV_WNDW_DEFAULT && wrap_around_flag)
+    	if ( (base_seq_num % MAX_SEQ_NUM) > (MAX_SEQ_NUM - RECV_WNDW_DEFAULT) && wrap_around_flag)
     	{
     		wrap_arounds += 1;
     		wrap_around_flag = 0;
     	}
-    	else if (base_seq_num < MAX_SEQ_NUM - RECV_WNDW_DEFAULT)
+    	else if ( (base_seq_num % MAX_SEQ_NUM) < (MAX_SEQ_NUM - RECV_WNDW_DEFAULT))
     	{
     		wrap_around_flag = 1;
     	}
@@ -195,7 +207,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
         print_RECV(recv_packet.header.seq_num);
         is_retransmission = 0;
 
-        long pseudo_seq_num;
+        
         // create pseudo-sequence number
         if (recv_packet.header.seq_num < MAX_SEQ_NUM - RECV_WNDW_DEFAULT)
         {
@@ -210,6 +222,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
         if (first_packet_received)
         {
             p_timeout->has_been_acked = 1;
+			//pthread_join(p_timeout->timeout_thread, NULL);
             first_packet_received = 0;
         }
 
@@ -218,6 +231,7 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
         {
 			tcp_header_init(&fin_packet->header, 0, recv_packet.header.seq_num, 1, 0, 1);
 			tcp_packet_init(fin_packet, NULL, 0);
+			done = 1;
 			break;
 		}
         else
@@ -228,12 +242,11 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
             {
             	// get packet's index in window buffer relative to base
             	index = ( (pseudo_seq_num - base_seq_num));
-		index = index/TCP_MAX_DATA_LEN;
-		index = index + base;
-		index = index % WINDOW_SIZE;
+				index = index/TCP_MAX_DATA_LEN;
+				index = index + base;
+				index = index % WINDOW_SIZE;
 				
-		fprintf(stdout, "%d %ld %ld %d %d %ld\n", index, pseudo_seq_num, base_seq_num, base, TCP_MAX_DATA_LEN, pseudo_seq_num - base_seq_num);
-				// have not received packet yet
+		// have not received packet yet
             	if (window_slot_filled[index] == 0)
             	{
 					memcpy(&window[index], &recv_packet, sizeof(tcp_packet));
@@ -252,35 +265,33 @@ int recv_file(socket_info *sock, tcp_packet *fin_packet, packet_timeout *p_timeo
             	is_retransmission = 1;
             }
 
-		//fprintf(stdout, "%s\n", window[index].data);
-
             // write to file
-            while (window_slot_filled[base] == 1)
-            {
-            	int bytes_written = write(fd, window[base].data, window[base].data_len);
+		if (!done) {
+		    while (window_slot_filled[base] == 1)
+		    {
+		    	int bytes_written = write(fd, window[base].data, window[base].data_len);
 
-		fprintf(stdout, "bytes written: %d\n", bytes_written);
+		    	base_seq_num = base_seq_num + window[base].data_len;
 
-            	base_seq_num = base_seq_num + window[base].data_len;
+		    	window_slot_filled[base] = 0;
+		    	base = (base + 1)%5;
+		    }
 
-            	window_slot_filled[base] = 0;
-            	base = (base + 1)%5;
-            }
+			fsync(fd);
 
-		fsync(fd);
+		    // need to determine if ACK to be sent is a retransmission
 
-            // need to determine if ACK to be sent is a retransmission
+	    		// create and send ACK
+	    		tcp_packet ack_packet;
+	    		tcp_header_init(&ack_packet.header, 0, recv_packet.header.seq_num, 1, 0, 0);
+	    		tcp_packet_init(&ack_packet, NULL, 0);
+	    		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
 
-    		// create and send ACK
-    		tcp_packet ack_packet;
-    		tcp_header_init(&ack_packet.header, 0, recv_packet.header.seq_num, 1, 0, 0);
-    		tcp_packet_init(&ack_packet, NULL, 0);
-    		send_tcp_packet(&ack_packet, sock->sockfd, sock->si_other);
+		    // print send
+	    		print_SEND(recv_packet.header.seq_num, is_retransmission, 0, 0);
 
-            // print send
-    		print_SEND(recv_packet.header.seq_num, is_retransmission, 0, 0);
-
-        }
+		}
+		}
         
 	}
 
