@@ -7,7 +7,6 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <pthread.h>
 #include <time.h>
 #include "tcp.h"
 
@@ -31,7 +30,6 @@ typedef struct {
 	tcp_packet *packet;
 	struct timespec time_stamp;
 	int has_been_acked;
-	pthread_t timeout_thread;
 	int sockfd;
 	const struct sockaddr_in *dest_addr;
 } packet_timeout;
@@ -109,9 +107,6 @@ int send_and_timeout(packet_timeout *p_timeout, tcp_packet *send_packet, int soc
 	int n = send_tcp_packet(p_timeout->packet, sockfd, dest_addr);
 	print_SEND(p_timeout->packet->header.seq_num, 0, p_timeout->packet->header.syn, p_timeout->packet->header.fin);
 
-	if (n == 0) {
-		pthread_create(&p_timeout->timeout_thread, NULL, timeout_check, (void *) send_packet);
-	}
 
 	return n;
 }
@@ -282,8 +277,6 @@ int close_connection(socket_info *sock)
 
 	clock_gettime(CLOCK_MONOTONIC, &start);
 
-	pthread_t fin_ack_thread;
-	pthread_create(&fin_ack_thread, NULL, wait_for_fin_ack, &fin_ack_info);
 
 	diff = 0;
 	while (diff < TIME_WAIT_IN_NS) {
@@ -299,7 +292,6 @@ int close_connection(socket_info *sock)
 		}
 	}
 
-	pthread_cancel(fin_ack_thread);
 
 	return 0;
 }
